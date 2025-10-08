@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -188,11 +189,31 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 	entity.SetUpdatedBy(tenantInfo.UserID)
 	entity.SetTenantID(tenantInfo.TenantID)
 
-	return mar.base.Create(ctx, entity)
+	// Converte UUIDs para binary subtype 4
+	doc := convertUUIDs(entity)
+	_, err := mar.base.collection.InsertOne(ctx, doc)
+	if err != nil {
+		var zero T
+		return zero, NewInternalError("Failed to create entity: " + err.Error())
+	}
+
+	return entity, nil
 }
 
 func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (T, error) {
-	return mar.base.GetByID(ctx, id)
+	var entity T
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{"_id": binaryUUID}
+
+	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return entity, NewNotFoundError("Entity not found")
+		}
+		return entity, NewInternalError("Failed to get entity: " + err.Error())
+	}
+
+	return entity, nil
 }
 
 func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
@@ -204,11 +225,40 @@ func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, en
 	entity.SetUpdatedAt(tenantInfo.ActionAt)
 	entity.SetUpdatedBy(tenantInfo.UserID)
 	entity.SetTenantID(tenantInfo.TenantID)
-	return mar.base.Update(ctx, id, entity)
+
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{"_id": binaryUUID}
+	doc := convertUUIDs(entity)
+	update := bson.M{"$set": doc}
+
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	var updated T
+
+	err := mar.base.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updated)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return updated, NewNotFoundError("Entity not found")
+		}
+		return updated, NewInternalError("Failed to update entity: " + err.Error())
+	}
+
+	return updated, nil
 }
 
 func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
-	return mar.base.Delete(ctx, id)
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{"_id": binaryUUID}
+
+	result, err := mar.base.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return NewInternalError("Failed to delete entity: " + err.Error())
+	}
+
+	if result.DeletedCount == 0 {
+		return NewNotFoundError("Entity not found")
+	}
+
+	return nil
 }
 
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
