@@ -285,9 +285,7 @@ func main() {
 	log.Println("  GET  /api/v1/users/health - Health check dos usuários")
 	log.Println("  GET  /metrics - Métricas da aplicação")
 	log.Println("  GET  /traces - Spans de tracing")
-	log.Println("  GET  /api/v1/me - Meus dados (protegido)")
-	log.Println("  GET  /api/v1/admin/stats - Admin only (protegido)")
-	log.Println("  GET  /public/metrics - Métricas públicas")
+
 	log.Println("  GET  /swagger/index.html - Documentação Swagger")
 	log.Println("")
 	log.Println("👥 CRUD Usuários (requer auth):")
@@ -297,14 +295,16 @@ func main() {
 	log.Println("  PUT  /api/v1/users/:id - Atualizar usuário")
 	log.Println("  DELETE /api/v1/users/:id - Deletar usuário")
 	log.Println("")
+	// Banner automático do framework
+	app.ShowBanner(zendia.BannerConfig{
+		AppName:    "ZendiaFramework Demo",
+		Version:    "1.0.0",
+		Port:       "8080",
+		ShowRoutes: true,
+	})
+
 	log.Println("💡 Exemplo de teste:")
-	log.Println("curl -H 'X-Tenant-ID: demo' -H 'Authorization: Bearer <firebase-token>' http://localhost:8080/api/v1/users")
-	log.Println("")
-	log.Println("🔐 Firebase Auth:")
-	log.Println("  - Todas as rotas /api/v1/* são protegidas")
-	log.Println("  - Use Authorization: Bearer <firebase-token>")
-	log.Println("  - Dados do usuário disponíveis em c.GetAuthUser()")
-	log.Println("  - Roles: c.HasRole('admin'), RequireRole('admin')")
+	log.Println("curl -H 'Authorization: Bearer <firebase-token>' http://localhost:8080/api/v1/me")
 
 	app.Run(":8080")
 }
