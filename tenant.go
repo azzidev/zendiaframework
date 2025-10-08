@@ -16,9 +16,9 @@ const (
 
 // TenantInfo informações do tenant no contexto
 type TenantInfo struct {
-	TenantID string    `json:"tenant_id"`
-	UserID   string    `json:"user_id"`
-	ActionAt time.Time `json:"action_at"`
+	TenantID string    `json:"tenantId"`
+	UserID   string    `json:"userId"`
+	ActionAt time.Time `json:"actionAt"`
 }
 
 // TenantExtractor função para extrair informações do tenant

@@ -217,7 +217,23 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 }
 
 func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
-	return mar.base.GetFirst(ctx, filters)
+	var entity T
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return entity, NewNotFoundError("No entity found")
+		}
+		return entity, NewInternalError("Failed to get first entity: " + err.Error())
+	}
+
+	return entity, nil
 }
 
 func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
@@ -262,13 +278,51 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 }
 
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return mar.base.GetAll(ctx, filters)
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	cursor, err := mar.base.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
 }
 
 func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
-	return mar.base.GetAllSkipTake(ctx, filters, skip, take)
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+
+	cursor, err := mar.base.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
 }
 
 func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return mar.base.List(ctx, filters)
+	return mar.GetAll(ctx, filters)
 }

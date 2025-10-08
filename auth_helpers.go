@@ -65,9 +65,9 @@ type AuthUser struct {
 	Email         string `json:"email"`
 	Name          string `json:"name"`
 	Picture       string `json:"picture"`
-	EmailVerified bool   `json:"email_verified"`
+	EmailVerified bool   `json:"emailVerified"`
 	Role          string `json:"role"`
-	TenantID      string `json:"tenant_id"`
+	TenantID      string `json:"tenantId"`
 }
 
 // Context helpers para usar nos handlers
