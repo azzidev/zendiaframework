@@ -139,21 +139,32 @@ func createUser(c *zendia.Context[User]) error {
 ### Repository com Auditoria
 
 ```go
+import "github.com/google/uuid"
+
 type User struct {
-    ID        string    `json:"id"`
+    ID        uuid.UUID `bson:"_id" json:"id"`
     Name      string    `json:"name" validate:"required,min=2"`
     Email     string    `json:"email" validate:"required,email"`
-    TenantID  string    `json:"tenant_id"`  // Preenchido automaticamente
-    CreatedAt time.Time `json:"created_at"` // Preenchido automaticamente
-    CreatedBy string    `json:"created_by"` // Preenchido automaticamente
-    UpdatedAt time.Time `json:"updated_at"` // Atualizado automaticamente
-    UpdatedBy string    `json:"updated_by"` // Atualizado automaticamente
+    TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"` // Preenchido automaticamente
+    CreatedAt time.Time `bson:"created_at" json:"created_at"` // Preenchido automaticamente
+    CreatedBy string    `bson:"created_by" json:"created_by"` // Preenchido automaticamente
+    UpdatedAt time.Time `bson:"updated_at" json:"updated_at"` // Atualizado automaticamente
+    UpdatedBy string    `bson:"updated_by" json:"updated_by"` // Atualizado automaticamente
 }
 
-// MongoDB ou In-Memory - mesma interface!
+// Implementa interface para auditoria automática
+func (u *User) GetID() uuid.UUID        { return u.ID }
+func (u *User) SetID(id uuid.UUID)      { u.ID = id }
+func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
+func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
+func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
+func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
+func (u *User) SetTenantID(s string)     { u.TenantID = uuid.MustParse(s) }
+
+// MongoDB com UUID nativo - auditoria automática!
 baseRepo := zendia.NewMongoAuditRepository[*User](collection)
 // ou
-baseRepo := zendia.NewAuditRepository[*User, string](memoryRepo)
+baseRepo := zendia.NewAuditRepository[*User, uuid.UUID](memoryRepo)
 ```
 
 ---

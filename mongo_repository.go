@@ -157,18 +157,18 @@ func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]i
 // MongoAuditableEntity interface para entidades MongoDB com auditoria
 type MongoAuditableEntity interface {
 	AuditableEntity
-	GetID() string
-	SetID(string)
+	GetID() uuid.UUID
+	SetID(uuid.UUID)
 }
 
 // MongoAuditRepository repository MongoDB com auditoria
 type MongoAuditRepository[T MongoAuditableEntity] struct {
-	base *MongoRepository[T, string]
+	base *MongoRepository[T, uuid.UUID]
 }
 
 // NewMongoAuditRepository cria um repository MongoDB com auditoria
 func NewMongoAuditRepository[T MongoAuditableEntity](collection *mongo.Collection) *MongoAuditRepository[T] {
-	base := NewMongoRepository[T, string](collection, "_id")
+	base := NewMongoRepository[T, uuid.UUID](collection, "_id")
 	return &MongoAuditRepository[T]{
 		base: base,
 	}
@@ -178,8 +178,8 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 	tenantInfo := GetTenantInfo(ctx)
 
 	// Gera UUID se não tiver ID
-	if entity.GetID() == "" {
-		entity.SetID(uuid.New().String())
+	if entity.GetID() == uuid.Nil {
+		entity.SetID(uuid.New())
 	}
 
 	entity.SetCreatedAt(tenantInfo.ActionAt)
@@ -191,7 +191,7 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 	return mar.base.Create(ctx, entity)
 }
 
-func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id string) (T, error) {
+func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (T, error) {
 	return mar.base.GetByID(ctx, id)
 }
 
@@ -199,7 +199,7 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 	return mar.base.GetFirst(ctx, filters)
 }
 
-func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id string, entity T) (T, error) {
+func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
 	entity.SetUpdatedAt(tenantInfo.ActionAt)
 	entity.SetUpdatedBy(tenantInfo.UserID)
@@ -207,7 +207,7 @@ func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id string, entit
 	return mar.base.Update(ctx, id, entity)
 }
 
-func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id string) error {
+func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 	return mar.base.Delete(ctx, id)
 }
 
