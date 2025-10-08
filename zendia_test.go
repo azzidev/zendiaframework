@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFramework_New(t *testing.T) {
+func TestZendia_New(t *testing.T) {
 	app := New()
 	assert.NotNil(t, app)
 	assert.NotNil(t, app.engine)
@@ -18,7 +18,7 @@ func TestFramework_New(t *testing.T) {
 	assert.NotNil(t, app.errorHandler)
 }
 
-func TestFramework_GET(t *testing.T) {
+func TestZendia_GET(t *testing.T) {
 	app := New()
 	
 	app.GET("/test", Handle(func(c *Context[any]) error {
@@ -28,6 +28,8 @@ func TestFramework_GET(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -38,7 +40,7 @@ func TestFramework_GET(t *testing.T) {
 	assert.Equal(t, "test response", response["data"])
 }
 
-func TestFramework_POST(t *testing.T) {
+func TestZendia_POST(t *testing.T) {
 	app := New()
 	
 	type TestRequest struct {
@@ -60,12 +62,14 @@ func TestFramework_POST(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/test", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
-func TestFramework_Group(t *testing.T) {
+func TestZendia_Group(t *testing.T) {
 	app := New()
 	
 	api := app.Group("/api")
@@ -76,6 +80,8 @@ func TestFramework_Group(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/test", nil)
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -109,6 +115,8 @@ func TestErrorHandler_Handle(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/error", nil)
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
@@ -130,6 +138,8 @@ func TestMiddleware_CORS(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
@@ -150,6 +160,8 @@ func TestMiddleware_Auth(t *testing.T) {
 	// Teste sem token
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/protected", nil)
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 
@@ -157,6 +169,8 @@ func TestMiddleware_Auth(t *testing.T) {
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest("GET", "/protected", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
+	req.Header.Set("X-Tenant-ID", "test-tenant")
+	req.Header.Set("X-User-ID", "test-user")
 	app.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }

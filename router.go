@@ -4,16 +4,16 @@ import "github.com/gin-gonic/gin"
 
 // RouteGroup representa um grupo de rotas
 type RouteGroup struct {
-	group     *gin.RouterGroup
-	framework *Framework
+	group  *gin.RouterGroup
+	zendia *Zendia
 }
 
 // Group cria um subgrupo de rotas
 func (rg *RouteGroup) Group(relativePath string, handlers ...gin.HandlerFunc) *RouteGroup {
 	subGroup := rg.group.Group(relativePath, handlers...)
 	return &RouteGroup{
-		group:     subGroup,
-		framework: rg.framework,
+		group:  subGroup,
+		zendia: rg.zendia,
 	}
 }
 

@@ -2,6 +2,7 @@ package zendia
 
 import (
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ func Logger() gin.HandlerFunc {
 		return "[ZENDIA] " + param.TimeStamp.Format(time.RFC3339) +
 			" | " + param.Method + " " + param.Path +
 			" | " + param.ClientIP +
-			" | " + param.StatusCode + " " + param.Latency.String() + "\n"
+			" | " + fmt.Sprintf("%d", param.StatusCode) + " " + param.Latency.String() + "\n"
 	})
 }
 

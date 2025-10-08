@@ -6,8 +6,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Framework representa a instância principal do ZendiaFramework
-type Framework struct {
+// Zendia representa a instância principal do ZendiaFramework
+type Zendia struct {
 	engine      *gin.Engine
 	middlewares []gin.HandlerFunc
 	validator   *Validator
@@ -15,79 +15,86 @@ type Framework struct {
 }
 
 // New cria uma nova instância do framework
-func New() *Framework {
+func New() *Zendia {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	
-	f := &Framework{
+	z := &Zendia{
 		engine:       engine,
 		middlewares:  []gin.HandlerFunc{},
 		validator:    NewValidator(),
 		errorHandler: NewErrorHandler(),
 	}
 	
-	// Middleware padrão de recuperação de panic
-	f.engine.Use(gin.Recovery())
+	// Middlewares padrão
+	z.engine.Use(gin.Recovery())
+	z.engine.Use(TenantMiddleware(nil)) // Usa extrator padrão
 	
-	return f
+	return z
 }
 
 // Use adiciona middleware global
-func (f *Framework) Use(middleware ...gin.HandlerFunc) {
-	f.middlewares = append(f.middlewares, middleware...)
-	f.engine.Use(middleware...)
+func (z *Zendia) Use(middleware ...gin.HandlerFunc) {
+	z.middlewares = append(z.middlewares, middleware...)
+	z.engine.Use(middleware...)
 }
 
 // Group cria um grupo de rotas
-func (f *Framework) Group(relativePath string, handlers ...gin.HandlerFunc) *RouteGroup {
-	ginGroup := f.engine.Group(relativePath, handlers...)
+func (z *Zendia) Group(relativePath string, handlers ...gin.HandlerFunc) *RouteGroup {
+	ginGroup := z.engine.Group(relativePath, handlers...)
 	return &RouteGroup{
 		group:     ginGroup,
-		framework: f,
+		zendia: z,
 	}
 }
 
 // GET registra uma rota GET
-func (f *Framework) GET(relativePath string, handlers ...gin.HandlerFunc) {
-	f.engine.GET(relativePath, handlers...)
+func (z *Zendia) GET(relativePath string, handlers ...gin.HandlerFunc) {
+	z.engine.GET(relativePath, handlers...)
 }
 
 // POST registra uma rota POST
-func (f *Framework) POST(relativePath string, handlers ...gin.HandlerFunc) {
-	f.engine.POST(relativePath, handlers...)
+func (z *Zendia) POST(relativePath string, handlers ...gin.HandlerFunc) {
+	z.engine.POST(relativePath, handlers...)
 }
 
 // PUT registra uma rota PUT
-func (f *Framework) PUT(relativePath string, handlers ...gin.HandlerFunc) {
-	f.engine.PUT(relativePath, handlers...)
+func (z *Zendia) PUT(relativePath string, handlers ...gin.HandlerFunc) {
+	z.engine.PUT(relativePath, handlers...)
 }
 
 // DELETE registra uma rota DELETE
-func (f *Framework) DELETE(relativePath string, handlers ...gin.HandlerFunc) {
-	f.engine.DELETE(relativePath, handlers...)
+func (z *Zendia) DELETE(relativePath string, handlers ...gin.HandlerFunc) {
+	z.engine.DELETE(relativePath, handlers...)
 }
 
 // PATCH registra uma rota PATCH
-func (f *Framework) PATCH(relativePath string, handlers ...gin.HandlerFunc) {
-	f.engine.PATCH(relativePath, handlers...)
+func (z *Zendia) PATCH(relativePath string, handlers ...gin.HandlerFunc) {
+	z.engine.PATCH(relativePath, handlers...)
 }
 
 // Run inicia o servidor
-func (f *Framework) Run(addr ...string) error {
-	return f.engine.Run(addr...)
+func (z *Zendia) Run(addr ...string) error {
+	return z.engine.Run(addr...)
 }
 
 // ServeHTTP implementa http.Handler
-func (f *Framework) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	f.engine.ServeHTTP(w, req)
+func (z *Zendia) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	z.engine.ServeHTTP(w, req)
 }
 
 // GetValidator retorna o validador
-func (f *Framework) GetValidator() *Validator {
-	return f.validator
+func (z *Zendia) GetValidator() *Validator {
+	return z.validator
 }
 
 // GetErrorHandler retorna o manipulador de erros
-func (f *Framework) GetErrorHandler() ErrorHandler {
-	return f.errorHandler
+func (z *Zendia) GetErrorHandler() ErrorHandler {
+	return z.errorHandler
+}
+
+// SetTenantExtractor configura um extrator customizado de tenant
+func (z *Zendia) SetTenantExtractor(extractor TenantExtractor) {
+	// Remove o middleware padrão e adiciona o customizado
+	z.Use(TenantMiddleware(extractor))
 }

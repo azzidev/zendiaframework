@@ -2,6 +2,7 @@ package zendia
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -78,4 +79,24 @@ func (c *Context[T]) InternalError(message string) {
 		"success": false,
 		"error":   message,
 	})
+}
+
+// GetTenantID retorna o tenant ID do contexto
+func (c *Context[T]) GetTenantID() string {
+	return GetTenantIDFromGin(c.Context)
+}
+
+// GetUserID retorna o user ID do contexto
+func (c *Context[T]) GetUserID() string {
+	return GetUserIDFromGin(c.Context)
+}
+
+// GetActionAt retorna o timestamp da ação
+func (c *Context[T]) GetActionAt() time.Time {
+	return GetActionAtFromGin(c.Context)
+}
+
+// GetTenantInfo retorna todas as informações do tenant
+func (c *Context[T]) GetTenantInfo() TenantInfo {
+	return GetTenantInfoFromGin(c.Context)
 }

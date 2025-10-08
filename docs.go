@@ -16,9 +16,9 @@ type SwaggerInfo struct {
 }
 
 // SetupSwagger configura a documentação Swagger
-func (f *Framework) SetupSwagger(info SwaggerInfo) {
+func (z *Zendia) SetupSwagger(info SwaggerInfo) {
 	// Configuração básica do Swagger
-	f.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	z.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
 
 // APIDoc representa uma anotação de documentação

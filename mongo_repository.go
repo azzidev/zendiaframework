@@ -1,0 +1,224 @@
+package zendia
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+// MongoRepository implementação do Repository para MongoDB
+type MongoRepository[T any, ID comparable] struct {
+	collection *mongo.Collection
+	idField    string
+}
+
+// NewMongoRepository cria um novo repository MongoDB
+func NewMongoRepository[T any, ID comparable](collection *mongo.Collection, idField string) *MongoRepository[T, ID] {
+	if idField == "" {
+		idField = "_id"
+	}
+	return &MongoRepository[T, ID]{
+		collection: collection,
+		idField:    idField,
+	}
+}
+
+func (mr *MongoRepository[T, ID]) Create(ctx context.Context, entity T) (T, error) {
+	_, err := mr.collection.InsertOne(ctx, entity)
+	if err != nil {
+		var zero T
+		return zero, NewInternalError("Failed to create entity: " + err.Error())
+	}
+
+	return entity, nil
+}
+
+func (mr *MongoRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
+	var entity T
+	filter := bson.M{mr.idField: id}
+
+	err := mr.collection.FindOne(ctx, filter).Decode(&entity)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return entity, NewNotFoundError("Entity not found")
+		}
+		return entity, NewInternalError("Failed to get entity: " + err.Error())
+	}
+
+	return entity, nil
+}
+
+func (mr *MongoRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
+	var entity T
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	err := mr.collection.FindOne(ctx, filter).Decode(&entity)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return entity, NewNotFoundError("No entity found")
+		}
+		return entity, NewInternalError("Failed to get first entity: " + err.Error())
+	}
+
+	return entity, nil
+}
+
+func (mr *MongoRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (T, error) {
+	filter := bson.M{mr.idField: id}
+	update := bson.M{"$set": entity}
+
+	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
+	var updated T
+
+	err := mr.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updated)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return updated, NewNotFoundError("Entity not found")
+		}
+		return updated, NewInternalError("Failed to update entity: " + err.Error())
+	}
+
+	return updated, nil
+}
+
+func (mr *MongoRepository[T, ID]) Delete(ctx context.Context, id ID) error {
+	filter := bson.M{mr.idField: id}
+
+	result, err := mr.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return NewInternalError("Failed to delete entity: " + err.Error())
+	}
+
+	if result.DeletedCount == 0 {
+		return NewNotFoundError("Entity not found")
+	}
+
+	return nil
+}
+
+func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	cursor, err := mr.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
+func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+
+	cursor, err := mr.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
+func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	return mr.GetAll(ctx, filters)
+}
+
+// MongoAuditableEntity interface para entidades MongoDB com auditoria
+type MongoAuditableEntity interface {
+	AuditableEntity
+	GetID() string
+	SetID(string)
+}
+
+// MongoAuditRepository repository MongoDB com auditoria
+type MongoAuditRepository[T MongoAuditableEntity] struct {
+	base *MongoRepository[T, string]
+}
+
+// NewMongoAuditRepository cria um repository MongoDB com auditoria
+func NewMongoAuditRepository[T MongoAuditableEntity](collection *mongo.Collection) *MongoAuditRepository[T] {
+	base := NewMongoRepository[T, string](collection, "_id")
+	return &MongoAuditRepository[T]{
+		base: base,
+	}
+}
+
+func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, error) {
+	tenantInfo := GetTenantInfo(ctx)
+
+	// Gera UUID se não tiver ID
+	if entity.GetID() == "" {
+		entity.SetID(uuid.New().String())
+	}
+
+	entity.SetCreatedAt(tenantInfo.ActionAt)
+	entity.SetUpdatedAt(tenantInfo.ActionAt)
+	entity.SetCreatedBy(tenantInfo.UserID)
+	entity.SetUpdatedBy(tenantInfo.UserID)
+	entity.SetTenantID(tenantInfo.TenantID)
+
+	return mar.base.Create(ctx, entity)
+}
+
+func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id string) (T, error) {
+	return mar.base.GetByID(ctx, id)
+}
+
+func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
+	return mar.base.GetFirst(ctx, filters)
+}
+
+func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id string, entity T) (T, error) {
+	tenantInfo := GetTenantInfo(ctx)
+	entity.SetUpdatedAt(tenantInfo.ActionAt)
+	entity.SetUpdatedBy(tenantInfo.UserID)
+	entity.SetTenantID(tenantInfo.TenantID)
+	return mar.base.Update(ctx, id, entity)
+}
+
+func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id string) error {
+	return mar.base.Delete(ctx, id)
+}
+
+func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	return mar.base.GetAll(ctx, filters)
+}
+
+func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+	return mar.base.GetAllSkipTake(ctx, filters, skip, take)
+}
+
+func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	return mar.base.List(ctx, filters)
+}
