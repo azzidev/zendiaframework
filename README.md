@@ -1,12 +1,12 @@
 <div align="center">
   <h1>🚀 ZendiaFramework</h1>
   <p><strong>Framework Go modular e poderoso para APIs RESTful</strong></p>
-  
+
   [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/)
   [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
   [![Build Status](https://img.shields.io/badge/Build-Passing-success?style=for-the-badge)]()
-  
-  <p>Construído sobre o Gin com foco em <strong>simplicidade</strong>, <strong>performance</strong> e <strong>flexibilidade</strong></p>
+
+<p>Construído sobre o Gin com foco em <strong>simplicidade</strong>, <strong>performance</strong> e <strong>flexibilidade</strong></p>
 </div>
 
 ---
@@ -14,6 +14,7 @@
 ## ✨ Características Principais
 
 ### 🎯 **Core Features**
+
 - 🛣️ **Roteamento Inteligente** - Sistema flexível com grupos e middlewares
 - 🔒 **Multi-Tenant** - Contexto automático de tenant/usuário em todas as requisições
 - 📊 **Monitoramento Built-in** - Métricas, tracing e health checks nativos
@@ -21,12 +22,14 @@
 - ⚡ **Generics** - Type-safe com suporte completo a generics do Go
 
 ### 🛡️ **Segurança & Qualidade**
+
 - 🔐 **Autenticação** - Sistema flexível de auth com tokens
 - ✅ **Validação Robusta** - Validação automática com mensagens em português
 - 🚨 **Error Handling** - Tratamento padronizado e consistente de erros
 - 📝 **Auditoria** - Tracking automático de criação/modificação
 
 ### 🔧 **DevEx & Produção**
+
 - 📚 **Swagger Automático** - Documentação gerada automaticamente
 - 🏥 **Health Checks Reais** - Monitoramento com dados reais do sistema
 - 📈 **Observabilidade** - Tracing distribuído e métricas detalhadas
@@ -37,34 +40,76 @@
 ## 🚀 Quick Start
 
 ### Instalação
+
 ```bash
 go get github.com/azzidev/zendiaframework
+go get firebase.google.com/go/v4
 ```
 
-### Hello World
+### Hello World com Firebase Auth
+
 ```go
 package main
 
-import "github.com/azzidev/zendiaframework"
+import (
+    "context"
+    "log"
+    "github.com/azzidev/zendiaframework"
+    firebase "firebase.google.com/go/v4"
+    "google.golang.org/api/option"
+)
 
 func main() {
+    // Inicializa Firebase
+    opt := option.WithCredentialsFile("path/to/serviceAccountKey.json")
+    firebaseApp, err := firebase.NewApp(context.Background(), nil, opt)
+    if err != nil {
+        log.Fatal("Firebase init failed:", err)
+    }
+    firebaseAuth, err := firebaseApp.Auth(context.Background())
+    if err != nil {
+        log.Fatal("Firebase Auth init failed:", err)
+    }
+    
     app := zendia.New()
     
-    app.GET("/hello", zendia.Handle(func(c *zendia.Context[any]) error {
-        c.Success(map[string]string{
+    // Setup Firebase Auth
+    app.SetupAuth(zendia.AuthConfig{
+        FirebaseClient: firebaseAuth,
+        PublicRoutes:   []string{"/public"},
+    })
+  
+    // Rota protegida automaticamente
+    api := app.Group("/api/v1")
+    api.GET("/hello", zendia.Handle(func(c *zendia.Context[any]) error {
+        user := c.GetAuthUser() // Dados do usuário autenticado
+        c.Success(map[string]interface{}{
             "message": "Hello from ZendiaFramework! 🎉",
+            "user":    user.Name,
+            "email":   user.Email,
             "tenant":  c.GetTenantID(),
         })
         return nil
     }))
     
+    // Rota pública
+    app.GET("/public/status", zendia.Handle(func(c *zendia.Context[any]) error {
+        c.Success(map[string]string{"status": "ok"})
+        return nil
+    }))
+  
     app.Run(":8080")
 }
 ```
 
-### Teste rápido
+### Teste com Firebase Token
+
 ```bash
-curl -H "X-Tenant-ID: demo" -H "X-User-ID: user1" http://localhost:8080/hello
+# Rota protegida (precisa de token)
+curl -H "Authorization: Bearer <firebase-token>" http://localhost:8080/api/v1/hello
+
+# Rota pública (sem token)
+curl http://localhost:8080/public/status
 ```
 
 ---
@@ -72,25 +117,27 @@ curl -H "X-Tenant-ID: demo" -H "X-User-ID: user1" http://localhost:8080/hello
 ## 🏗️ Arquitetura
 
 ### Multi-Tenant por Padrão
+
 ```go
 // Contexto de tenant automático em TODAS as requisições
 func createUser(c *zendia.Context[User]) error {
     // TenantID, UserID e ActionAt já disponíveis!
     tenantID := c.GetTenantID()  // Automático
     userID := c.GetUserID()      // Automático
-    
+  
     var user User
     c.BindJSON(&user) // Validação automática
-    
+  
     // Auditoria automática (CreatedBy, CreatedAt, TenantID)
     created, err := userRepo.Create(c.Request.Context(), &user)
-    
+  
     c.Created(created)
     return nil
 }
 ```
 
 ### Repository com Auditoria
+
 ```go
 type User struct {
     ID        string    `json:"id"`
@@ -114,6 +161,7 @@ baseRepo := zendia.NewAuditRepository[*User, string](memoryRepo)
 ## 🛠️ Funcionalidades Avançadas
 
 ### 📊 Monitoramento Completo
+
 ```go
 app := zendia.New()
 
@@ -136,21 +184,58 @@ usersHealth.AddCheck(zendia.NewMemoryHealthCheck(1024))
 users.AddHealthEndpoint(usersHealth) // GET /users/health
 ```
 
-### 🔒 Segurança Integrada
+### 🔥 Firebase Authentication
+
+```go
+// Setup Firebase Auth uma vez
+opt := option.WithCredentialsFile("path/to/serviceAccountKey.json")
+firebaseApp, err := firebase.NewApp(context.Background(), nil, opt)
+if err != nil {
+    log.Fatal("Firebase init failed:", err)
+}
+firebaseAuth, err := firebaseApp.Auth(context.Background())
+if err != nil {
+    log.Fatal("Firebase Auth init failed:", err)
+}
+
+app.SetupAuth(zendia.AuthConfig{
+    FirebaseClient: firebaseAuth,
+    PublicRoutes:   []string{"/public", "/docs"},
+})
+
+// Todas as rotas são protegidas automaticamente
+api := app.Group("/api/v1") // Já protegido!
+
+// Roles específicas
+adminRoutes := api.Group("/admin").RequireRole("admin")
+managerRoutes := api.Group("/management").RequireRole("admin", "manager")
+
+// Email verificado obrigatório
+verifiedRoutes := api.Group("/verified", zendia.RequireEmailVerified())
+
+// Dados do usuário em qualquer handler
+api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
+    user := c.GetAuthUser()
+    if c.HasRole("admin") {
+        // Lógica para admin
+    }
+    c.Success(user)
+    return nil
+}))
+```
+
+### 🔐 Segurança Adicional
+
 ```go
 // Rate limiting
 app.Use(zendia.RateLimiter(100, time.Minute))
 
 // CORS configurável
 app.Use(zendia.CORS())
-
-// Auth flexível
-users := api.Group("/users", zendia.Auth(func(token string) bool {
-    return validateJWT(token) // Sua lógica de validação
-}))
 ```
 
 ### 📚 Documentação Automática
+
 ```go
 app.SetupSwagger(zendia.SwaggerInfo{
     Title:       "My API",
@@ -176,30 +261,43 @@ func createUser(c *zendia.Context[User]) error {
 ## 🎯 Casos de Uso
 
 ### ✅ Perfeito Para:
+
 - 🏢 **APIs Multi-tenant** - SaaS, B2B, plataformas
 - 📊 **Sistemas com Auditoria** - Compliance, rastreabilidade
 - 🔄 **Microserviços** - Observabilidade e health checks
 - 🚀 **MVPs Rápidos** - Setup mínimo, máxima produtividade
 - 🏗️ **APIs Corporativas** - Padrões, segurança, monitoramento
 
-### 🛡️ Casos Reais:
+### 🎩 Casos Reais com Firebase Auth:
+
 ```go
 // E-commerce multi-tenant
-app.POST("/api/v1/orders", zendia.Handle(func(c *zendia.Context[Order]) error {
-    // TenantID = loja, UserID = cliente
+api.POST("/orders", zendia.Handle(func(c *zendia.Context[Order]) error {
+    user := c.GetAuthUser() // Usuário autenticado
+    // TenantID automático, UserID do Firebase
     // Auditoria automática para compliance
 }))
 
-// Sistema bancário
-app.PUT("/api/v1/accounts/:id", zendia.Handle(func(c *zendia.Context[Account]) error {
+// Sistema bancário - só gerentes
+managerRoutes.PUT("/accounts/:id", zendia.Handle(func(c *zendia.Context[Account]) error {
+    user := c.GetAuthUser()
+    log.Printf("Manager %s updating account", user.Email)
     // Todas as alterações auditadas automaticamente
-    // Health checks para cada componente crítico
 }))
 
-// Plataforma SaaS
-app.GET("/api/v1/analytics", zendia.Handle(func(c *zendia.Context[any]) error {
+// Plataforma SaaS - dados por tenant
+api.GET("/analytics", zendia.Handle(func(c *zendia.Context[any]) error {
+    user := c.GetAuthUser()
+    tenantID := user.TenantID // Do token Firebase
     // Dados filtrados automaticamente por tenant
-    // Métricas de uso por cliente
+    // Métricas de uso por cliente autenticado
+}))
+
+// Admin dashboard - só admins
+adminRoutes.GET("/dashboard", zendia.Handle(func(c *zendia.Context[any]) error {
+    // Acesso garantido apenas para role 'admin'
+    c.Success(map[string]string{"message": "Admin data"})
+    return nil
 }))
 ```
 
@@ -208,18 +306,21 @@ app.GET("/api/v1/analytics", zendia.Handle(func(c *zendia.Context[any]) error {
 ## 📈 Performance & Observabilidade
 
 ### Métricas Automáticas
+
 - ⏱️ **Response Time** por endpoint
 - 📊 **Request Count** e **Error Rate**
 - 🔄 **Active Requests** em tempo real
 - 📈 **Throughput** e estatísticas detalhadas
 
 ### Tracing Distribuído
+
 - 🔍 **Trace ID** automático em todas as requisições
 - 📝 **Spans** com contexto completo
 - 🔗 **Propagação** entre serviços
 - 📊 **Visualização** de performance
 
 ### Health Checks Reais (Sem Mocks!)
+
 ```bash
 # Global - Memória real + Disco real
 GET /health
@@ -230,6 +331,7 @@ GET /api/v1/users/health    # Repository operations reais
 ```
 
 **Exemplo de resposta com dados reais:**
+
 ```json
 {
   "status": "UP",
@@ -248,11 +350,28 @@ GET /api/v1/users/health    # Repository operations reais
       "details": {
         "response_time_ms": 23
       }
+    },
+    "firebase_auth": {
+      "status": "UP",
+      "details": {
+        "active_users": 1247,
+        "auth_requests_today": 8934
+      }
     }
-
   }
 }
 ```
+
+### 🔥 Firebase Auth Features
+
+- ✅ **Token Validation** automática
+- ✅ **User Data** extraído do token (email, name, picture)
+- ✅ **Role-based Access** com `RequireRole()`
+- ✅ **Email Verification** com `RequireEmailVerified()`
+- ✅ **Multi-tenant** com tenant_id no token
+- ✅ **Public Routes** configuráveis
+- ✅ **Context Integration** com `c.GetAuthUser()`
+- ✅ **Error Handling** padronizado
 
 ---
 
@@ -271,17 +390,18 @@ go test -v ./repository_test.go
 ```
 
 ### Exemplo de Teste
+
 ```go
 func TestUserCreation(t *testing.T) {
     app := zendia.New()
-    
+  
     w := httptest.NewRecorder()
     req := httptest.NewRequest("POST", "/users", strings.NewReader(`{"name":"João"}`))
     req.Header.Set("X-Tenant-ID", "test-tenant")
     req.Header.Set("X-User-ID", "test-user")
-    
+  
     app.ServeHTTP(w, req)
-    
+  
     assert.Equal(t, 201, w.Code)
 }
 ```
@@ -291,6 +411,7 @@ func TestUserCreation(t *testing.T) {
 ## 🚀 Exemplo Completo
 
 Veja [`examples/complete_example.go`](examples/complete_example.go) para um exemplo completo com:
+
 - ✅ CRUD completo com auditoria
 - ✅ MongoDB + fallback in-memory
 - ✅ Autenticação e autorização
@@ -302,21 +423,37 @@ Veja [`examples/complete_example.go`](examples/complete_example.go) para um exem
 ```bash
 # Executar exemplo
 cd examples
-go run complete_example.go
+go run example.go
 
-# Testar
-curl -H "X-Tenant-ID: demo" -H "X-User-ID: user1" http://localhost:8080/tenant-info
+# Testar rota pública
+curl http://localhost:8080/public/metrics
+
+# Testar rota protegida (precisa de Firebase token)
+curl -H "Authorization: Bearer <firebase-token>" http://localhost:8080/api/v1/me
+
+# Testar rota admin (precisa de role 'admin' no token)
+curl -H "Authorization: Bearer <admin-firebase-token>" http://localhost:8080/api/v1/admin/stats
 ```
 
----
+### 🔧 Setup Firebase
 
-## 🤝 Contribuindo
-
-1. Fork o projeto
-2. Crie sua feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
+1. **Crie um projeto** no [Firebase Console](https://console.firebase.google.com)
+2. **Ative Authentication** → Email/Password
+3. **Baixe o Service Account Key**:
+   - Project Settings → Service Accounts → Generate New Private Key
+4. **Configure as credenciais**:
+   ```bash
+   export GOOGLE_APPLICATION_CREDENTIALS="path/to/serviceAccountKey.json"
+   ```
+5. **Token Structure** no Firebase deve ter:
+   ```json
+   {
+     "email": "user@example.com",
+     "name": "User Name",
+     "role": "admin",
+     "tenant_id": "company-123"
+   }
+   ```
 
 ---
 

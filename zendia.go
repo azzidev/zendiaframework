@@ -12,6 +12,7 @@ type Zendia struct {
 	middlewares []gin.HandlerFunc
 	validator   *Validator
 	errorHandler ErrorHandler
+	authConfig  *AuthConfig
 }
 
 // New cria uma nova instância do framework

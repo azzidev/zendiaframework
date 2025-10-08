@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"firebase.google.com/go/v4"
 )
 
 // User entidade completa com auditoria e tenant
@@ -34,12 +35,29 @@ func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
 func (u *User) SetTenantID(s string)     { u.TenantID = s }
 
 func main() {
+	// Inicializa Firebase
+	ctx := context.Background()
+	firebaseApp, err := firebase.NewApp(ctx, nil)
+	if err != nil {
+		log.Fatal("Firebase init failed:", err)
+	}
+	firebaseAuth, err := firebaseApp.Auth(ctx)
+	if err != nil {
+		log.Fatal("Firebase Auth init failed:", err)
+	}
+
 	app := zendia.New()
 
 	// Middlewares
 	app.Use(zendia.Logger())
 	app.Use(zendia.CORS())
 	app.Use(zendia.Compression())
+
+	// Setup Firebase Auth
+	app.SetupAuth(zendia.AuthConfig{
+		FirebaseClient: firebaseAuth,
+		PublicRoutes:   []string{"/public", "/docs"},
+	})
 
 	// Monitoramento e Tracing
 	metrics := app.AddMonitoring()
@@ -90,18 +108,24 @@ func main() {
 	}
 	api.AddHealthEndpoint(apiHealth)
 
-	// Grupo de usuários com auth
-	users := api.Group("/users", zendia.Auth(func(token string) bool {
-		return token == "valid-token" // Validação simples
-	}))
+	// Grupo de usuários (já protegido pelo Firebase Auth)
+	users := api.Group("/users")
+
+	// Rotas que exigem roles específicas
+	adminRoutes := api.Group("/admin").RequireRole("admin")
+	_ = api.Group("/management").RequireRole("admin", "manager") // managerRoutes
 
 	// Health específico dos usuários
 	usersHealth := zendia.NewHealthManager()
 	usersHealth.AddCheck(zendia.NewRepositoryHealthCheck("user_repository", userRepo))
 	users.AddHealthEndpoint(usersHealth)
 
-	// CRUD Completo
+	// CRUD Completo com Firebase Auth
 	users.POST("/", zendia.Handle(func(c *zendia.Context[User]) error {
+		// Dados do usuário autenticado disponíveis automaticamente
+		authUser := c.GetAuthUser()
+		log.Printf("User %s (%s) creating new user", authUser.Name, authUser.Email)
+
 		var user User
 		if err := c.BindJSON(&user); err != nil {
 			return err
@@ -122,6 +146,7 @@ func main() {
 
 		c.Created(map[string]interface{}{
 			"user": created,
+			"created_by": authUser,
 			"tenant_info": c.GetTenantInfo(),
 		})
 		return nil
@@ -216,19 +241,34 @@ func main() {
 		return nil
 	}))
 
-	// Endpoints de sistema
-	app.GET("/metrics", zendia.Handle(func(c *zendia.Context[any]) error {
+	// Endpoints públicos (não protegidos)
+	app.GET("/public/metrics", zendia.Handle(func(c *zendia.Context[any]) error {
 		c.Success(metrics.GetStats())
 		return nil
 	}))
 
-	app.GET("/traces", zendia.Handle(func(c *zendia.Context[any]) error {
+	app.GET("/public/traces", zendia.Handle(func(c *zendia.Context[any]) error {
 		c.Success(tracer.GetSpans())
 		return nil
 	}))
 
-	app.GET("/tenant-info", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success(c.GetTenantInfo())
+	// Endpoint protegido com dados do usuário
+	api.GET("/me", zendia.Handle(func(c *zendia.Context[any]) error {
+		authUser := c.GetAuthUser()
+		c.Success(map[string]interface{}{
+			"user": authUser,
+			"tenant_info": c.GetTenantInfo(),
+			"authenticated": c.IsAuthenticated(),
+		})
+		return nil
+	}))
+
+	// Endpoint só para admins
+	adminRoutes.GET("/stats", zendia.Handle(func(c *zendia.Context[any]) error {
+		c.Success(map[string]interface{}{
+			"message": "Admin only data",
+			"admin": c.GetAuthUser(),
+		})
 		return nil
 	}))
 
@@ -245,7 +285,9 @@ func main() {
 	log.Println("  GET  /api/v1/users/health - Health check dos usuários")
 	log.Println("  GET  /metrics - Métricas da aplicação")
 	log.Println("  GET  /traces - Spans de tracing")
-	log.Println("  GET  /tenant-info - Informações do tenant")
+	log.Println("  GET  /api/v1/me - Meus dados (protegido)")
+	log.Println("  GET  /api/v1/admin/stats - Admin only (protegido)")
+	log.Println("  GET  /public/metrics - Métricas públicas")
 	log.Println("  GET  /swagger/index.html - Documentação Swagger")
 	log.Println("")
 	log.Println("👥 CRUD Usuários (requer auth):")
@@ -256,7 +298,13 @@ func main() {
 	log.Println("  DELETE /api/v1/users/:id - Deletar usuário")
 	log.Println("")
 	log.Println("💡 Exemplo de teste:")
-	log.Println("curl -H 'X-Tenant-ID: demo' -H 'X-User-ID: user1' http://localhost:8080/tenant-info")
+	log.Println("curl -H 'X-Tenant-ID: demo' -H 'Authorization: Bearer <firebase-token>' http://localhost:8080/api/v1/users")
+	log.Println("")
+	log.Println("🔐 Firebase Auth:")
+	log.Println("  - Todas as rotas /api/v1/* são protegidas")
+	log.Println("  - Use Authorization: Bearer <firebase-token>")
+	log.Println("  - Dados do usuário disponíveis em c.GetAuthUser()")
+	log.Println("  - Roles: c.HasRole('admin'), RequireRole('admin')")
 
 	app.Run(":8080")
 }
