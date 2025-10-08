@@ -2,6 +2,7 @@ package zendia
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
@@ -203,7 +204,10 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (T, error) {
 	var entity T
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
-	filter := bson.M{"_id": binaryUUID}
+	filter := bson.M{
+		"_id":        binaryUUID,
+		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+	}
 
 	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
@@ -218,7 +222,9 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 
 func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
-	filter := bson.M{}
+	filter := bson.M{
+		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+	}
 
 	// Converte filtros para BSON
 	for k, v := range filters {
@@ -262,23 +268,40 @@ func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, en
 }
 
 func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
-	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
-	filter := bson.M{"_id": binaryUUID}
+	tenantInfo := GetTenantInfo(ctx)
+	now := time.Now()
 
-	result, err := mar.base.collection.DeleteOne(ctx, filter)
-	if err != nil {
-		return NewInternalError("Failed to delete entity: " + err.Error())
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{
+		"_id":        binaryUUID,
+		"deleted_at": bson.M{"$exists": false}, // Só deleta se não estiver já deletado
 	}
 
-	if result.DeletedCount == 0 {
-		return NewNotFoundError("Entity not found")
+	update := bson.M{
+		"$set": bson.M{
+			"deleted_at": now,
+			"deleted_by": tenantInfo.UserID,
+			"updated_at": now,
+			"updated_by": tenantInfo.UserID,
+		},
+	}
+
+	result, err := mar.base.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return NewInternalError("Failed to soft delete entity: " + err.Error())
+	}
+
+	if result.ModifiedCount == 0 {
+		return NewNotFoundError("Entity not found or already deleted")
 	}
 
 	return nil
 }
 
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	filter := bson.M{}
+	filter := bson.M{
+		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+	}
 
 	// Converte filtros para BSON
 	for k, v := range filters {
@@ -300,7 +323,9 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 }
 
 func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
-	filter := bson.M{}
+	filter := bson.M{
+		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+	}
 
 	// Converte filtros para BSON
 	for k, v := range filters {
@@ -325,4 +350,102 @@ func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters 
 
 func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
 	return mar.GetAll(ctx, filters)
+}
+
+// GetAllIncludingDeleted busca todos os registros incluindo os deletados
+func (mar *MongoAuditRepository[T]) GetAllIncludingDeleted(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	filter := bson.M{}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	cursor, err := mar.base.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
+// GetDeleted busca apenas registros deletados
+func (mar *MongoAuditRepository[T]) GetDeleted(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	filter := bson.M{
+		"deleted_at": bson.M{"$exists": true}, // Apenas registros deletados
+	}
+
+	// Converte filtros para BSON
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	cursor, err := mar.base.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, NewInternalError("Failed to get deleted entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode deleted entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
+// HardDelete remove permanentemente do banco
+func (mar *MongoAuditRepository[T]) HardDelete(ctx context.Context, id uuid.UUID) error {
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{"_id": binaryUUID}
+
+	result, err := mar.base.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return NewInternalError("Failed to hard delete entity: " + err.Error())
+	}
+
+	if result.DeletedCount == 0 {
+		return NewNotFoundError("Entity not found")
+	}
+
+	return nil
+}
+
+// Restore restaura um registro soft deleted
+func (mar *MongoAuditRepository[T]) Restore(ctx context.Context, id uuid.UUID) error {
+	tenantInfo := GetTenantInfo(ctx)
+
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{
+		"_id":        binaryUUID,
+		"deleted_at": bson.M{"$exists": true}, // Só restaura se estiver deletado
+	}
+
+	update := bson.M{
+		"$unset": bson.M{
+			"deleted_at": "",
+			"deleted_by": "",
+		},
+		"$set": bson.M{
+			"updated_at": tenantInfo.ActionAt,
+			"updated_by": tenantInfo.UserID,
+		},
+	}
+
+	result, err := mar.base.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return NewInternalError("Failed to restore entity: " + err.Error())
+	}
+
+	if result.ModifiedCount == 0 {
+		return NewNotFoundError("Entity not found or not deleted")
+	}
+
+	return nil
 }

@@ -59,7 +59,7 @@ func (z *Zendia) authMiddleware() gin.HandlerFunc {
 		}
 
 		// Extrai TODOS os dados do usuário
-		userID := token.UID
+		firebaseUID := token.UID
 		email, _ := token.Claims["email"].(string)
 		name, _ := token.Claims["name"].(string)
 		picture, _ := token.Claims["picture"].(string)
@@ -68,7 +68,8 @@ func (z *Zendia) authMiddleware() gin.HandlerFunc {
 		tenantID, _ := token.Claims["tenant_id"].(string)
 
 		// Adiciona TUDO ao contexto do Gin
-		c.Set("auth_user_id", userID)
+		c.Set("auth_firebase_uid", firebaseUID)
+		c.Set("auth_user_id", firebaseUID) // Por enquanto usa Firebase UID
 		c.Set("auth_email", email)
 		c.Set("auth_name", name)
 		c.Set("auth_picture", picture)
@@ -82,10 +83,10 @@ func (z *Zendia) authMiddleware() gin.HandlerFunc {
 		if tenantID != "" {
 			c.Header("X-Tenant-ID", tenantID)
 		}
-		c.Header("X-User-ID", userID)
+		c.Header("X-User-ID", firebaseUID)
 
 		// Adiciona ao contexto da requisição também
-		ctx := context.WithValue(c.Request.Context(), "user_id", userID)
+		ctx := context.WithValue(c.Request.Context(), "user_id", firebaseUID)
 		ctx = context.WithValue(ctx, "email", email)
 		ctx = context.WithValue(ctx, "tenant_id", tenantID)
 		c.Request = c.Request.WithContext(ctx)
