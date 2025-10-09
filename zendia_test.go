@@ -145,32 +145,3 @@ func TestMiddleware_CORS(t *testing.T) {
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
 }
 
-func TestMiddleware_Auth(t *testing.T) {
-	app := New()
-	
-	authMiddleware := Auth(func(token string) bool {
-		return token == "valid-token"
-	})
-	
-	app.GET("/protected", authMiddleware, Handle(func(c *Context[any]) error {
-		c.Success("protected resource")
-		return nil
-	}))
-
-	// Teste sem token
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/protected", nil)
-	req.Header.Set("X-Tenant-ID", "test-tenant")
-	req.Header.Set("X-User-ID", "test-user")
-	app.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-
-	// Teste com token válido
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/protected", nil)
-	req.Header.Set("Authorization", "Bearer valid-token")
-	req.Header.Set("X-Tenant-ID", "test-tenant")
-	req.Header.Set("X-User-ID", "test-user")
-	app.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
-}

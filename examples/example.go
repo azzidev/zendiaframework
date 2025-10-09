@@ -5,11 +5,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/azzidev/zendiaframework"
+	firebase "firebase.google.com/go/v4"
+	zendia "github.com/azzidev/zendiaframework"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"firebase.google.com/go/v4"
 )
 
 // User entidade completa com auditoria e tenant usando UUID nativo
@@ -26,13 +26,13 @@ type User struct {
 }
 
 // Implementa MongoAuditableEntity com UUID nativo
-func (u *User) GetID() uuid.UUID        { return u.ID }
-func (u *User) SetID(id uuid.UUID)      { u.ID = id }
+func (u *User) GetID() uuid.UUID         { return u.ID }
+func (u *User) SetID(id uuid.UUID)       { u.ID = id }
 func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
 func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
 func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
 func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
-func (u *User) SetTenantID(s string)     { 
+func (u *User) SetTenantID(s string) {
 	if s != "" {
 		u.TenantID = uuid.MustParse(s)
 	}
@@ -55,7 +55,6 @@ func main() {
 	// Middlewares
 	app.Use(zendia.Logger())
 	app.Use(zendia.CORS())
-	app.Use(zendia.Compression())
 
 	// Setup Firebase Auth
 	app.SetupAuth(zendia.AuthConfig{
@@ -101,7 +100,7 @@ func main() {
 
 	// API v1
 	api := app.Group("/api/v1")
-	
+
 	// Health específico da API
 	apiHealth := zendia.NewHealthManager()
 	apiHealth.AddCheck(zendia.NewHTTPHealthCheck("external_api", "https://httpbin.org/status/200", 5*time.Second))
@@ -149,8 +148,8 @@ func main() {
 		}
 
 		c.Created(map[string]interface{}{
-			"user": created,
-			"created_by": authUser,
+			"user":        created,
+			"created_by":  authUser,
 			"tenant_info": c.GetTenantInfo(),
 		})
 		return nil
@@ -178,9 +177,9 @@ func main() {
 		}
 
 		c.Success(map[string]interface{}{
-			"users": users,
+			"users":     users,
 			"tenant_id": c.GetTenantID(),
-			"count": len(users),
+			"count":     len(users),
 		})
 		return nil
 	}))
@@ -270,8 +269,8 @@ func main() {
 	api.GET("/me", zendia.Handle(func(c *zendia.Context[any]) error {
 		authUser := c.GetAuthUser()
 		c.Success(map[string]interface{}{
-			"user": authUser,
-			"tenant_info": c.GetTenantInfo(),
+			"user":          authUser,
+			"tenant_info":   c.GetTenantInfo(),
 			"authenticated": c.IsAuthenticated(),
 		})
 		return nil
@@ -281,7 +280,7 @@ func main() {
 	adminRoutes.GET("/stats", zendia.Handle(func(c *zendia.Context[any]) error {
 		c.Success(map[string]interface{}{
 			"message": "Admin only data",
-			"admin": c.GetAuthUser(),
+			"admin":   c.GetAuthUser(),
 		})
 		return nil
 	}))
