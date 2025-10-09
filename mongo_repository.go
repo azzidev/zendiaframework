@@ -205,8 +205,11 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 	var entity T
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
 	filter := bson.M{
-		"_id":        binaryUUID,
-		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+		"_id": binaryUUID,
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
 	}
 
 	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
@@ -223,7 +226,10 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
 	filter := bson.M{
-		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
 	}
 
 	// Converte filtros para BSON
@@ -273,8 +279,11 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
 	filter := bson.M{
-		"_id":        binaryUUID,
-		"deleted_at": bson.M{"$exists": false}, // Só deleta se não estiver já deletado
+		"_id": binaryUUID,
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
 	}
 
 	update := bson.M{
@@ -300,7 +309,10 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
 	filter := bson.M{
-		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
 	}
 
 	// Converte filtros para BSON
@@ -324,7 +336,10 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 
 func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
 	filter := bson.M{
-		"deleted_at": bson.M{"$exists": false}, // Exclui registros deletados
+		"$or": []bson.M{
+			{"deleted_at": bson.M{"$exists": false}},
+			{"deleted_at": nil},
+		},
 	}
 
 	// Converte filtros para BSON
