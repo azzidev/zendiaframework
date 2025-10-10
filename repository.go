@@ -3,6 +3,8 @@ package zendia
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Repository interface genérica para operações CRUD
@@ -17,8 +19,22 @@ type Repository[T any, ID comparable] interface {
 	List(ctx context.Context, filters map[string]interface{}) ([]T, error)
 }
 
+// AuditInfo estrutura para informações de auditoria
+type AuditInfo struct {
+	SetAt  time.Time `bson:"set_at" json:"set_at"`
+	ByName string    `bson:"by_name" json:"by_name"`
+	ByID   uuid.UUID `bson:"by_id" json:"by_id"`
+}
+
 // AuditableEntity interface para entidades com auditoria
 type AuditableEntity interface {
+	SetCreated(AuditInfo)
+	SetUpdated(AuditInfo)
+	SetTenantID(string)
+}
+
+// LegacyAuditableEntity interface para compatibilidade com entidades antigas
+type LegacyAuditableEntity interface {
 	SetCreatedAt(time.Time)
 	SetUpdatedAt(time.Time)
 	SetCreatedBy(string)
@@ -27,12 +43,12 @@ type AuditableEntity interface {
 }
 
 // AuditRepository wrapper que adiciona funcionalidades de auditoria
-type AuditRepository[T AuditableEntity, ID comparable] struct {
+type AuditRepository[T any, ID comparable] struct {
 	base Repository[T, ID]
 }
 
 // NewAuditRepository cria um repository com auditoria
-func NewAuditRepository[T AuditableEntity, ID comparable](base Repository[T, ID]) *AuditRepository[T, ID] {
+func NewAuditRepository[T any, ID comparable](base Repository[T, ID]) *AuditRepository[T, ID] {
 	return &AuditRepository[T, ID]{
 		base: base,
 	}
@@ -40,11 +56,26 @@ func NewAuditRepository[T AuditableEntity, ID comparable](base Repository[T, ID]
 
 func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
-	entity.SetCreatedAt(tenantInfo.ActionAt)
-	entity.SetUpdatedAt(tenantInfo.ActionAt)
-	entity.SetCreatedBy(tenantInfo.UserID)
-	entity.SetUpdatedBy(tenantInfo.UserID)
-	entity.SetTenantID(tenantInfo.TenantID)
+	
+	// Tenta usar nova interface primeiro
+	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		auditInfo := AuditInfo{
+			SetAt:  tenantInfo.ActionAt,
+			ByName: tenantInfo.UserName,
+			ByID:   uuid.MustParse(tenantInfo.UserID),
+		}
+		newEntity.SetCreated(auditInfo)
+		newEntity.SetUpdated(auditInfo)
+		newEntity.SetTenantID(tenantInfo.TenantID)
+	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
+		// Fallback para interface antiga
+		legacyEntity.SetCreatedAt(tenantInfo.ActionAt)
+		legacyEntity.SetUpdatedAt(tenantInfo.ActionAt)
+		legacyEntity.SetCreatedBy(tenantInfo.UserID)
+		legacyEntity.SetUpdatedBy(tenantInfo.UserID)
+		legacyEntity.SetTenantID(tenantInfo.TenantID)
+	}
+	
 	return ar.base.Create(ctx, entity)
 }
 
@@ -54,9 +85,23 @@ func (ar *AuditRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error)
 
 func (ar *AuditRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
-	entity.SetUpdatedAt(tenantInfo.ActionAt)
-	entity.SetUpdatedBy(tenantInfo.UserID)
-	entity.SetTenantID(tenantInfo.TenantID)
+	
+	// Tenta usar nova interface primeiro
+	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		auditInfo := AuditInfo{
+			SetAt:  tenantInfo.ActionAt,
+			ByName: tenantInfo.UserName,
+			ByID:   uuid.MustParse(tenantInfo.UserID),
+		}
+		newEntity.SetUpdated(auditInfo)
+		newEntity.SetTenantID(tenantInfo.TenantID)
+	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
+		// Fallback para interface antiga
+		legacyEntity.SetUpdatedAt(tenantInfo.ActionAt)
+		legacyEntity.SetUpdatedBy(tenantInfo.UserID)
+		legacyEntity.SetTenantID(tenantInfo.TenantID)
+	}
+	
 	return ar.base.Update(ctx, id, entity)
 }
 

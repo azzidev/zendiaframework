@@ -85,7 +85,8 @@ func (z *Zendia) authMiddleware() gin.HandlerFunc {
 		}
 		c.Header("X-User-ID", firebaseUID)
 
-		// Adiciona ao contexto da requisição também
+		// TODO: Buscar usuário no banco pelo email para pegar UUID correto
+		// Por enquanto usa Firebase UID
 		ctx := context.WithValue(c.Request.Context(), "user_id", firebaseUID)
 		ctx = context.WithValue(ctx, "email", email)
 		ctx = context.WithValue(ctx, "tenant_id", tenantID)

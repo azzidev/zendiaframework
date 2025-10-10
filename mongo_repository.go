@@ -158,9 +158,9 @@ func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]i
 
 // MongoAuditableEntity interface para entidades MongoDB com auditoria
 type MongoAuditableEntity interface {
-	AuditableEntity
 	GetID() uuid.UUID
 	SetID(uuid.UUID)
+	SetTenantID(string)
 }
 
 // MongoAuditRepository repository MongoDB com auditoria
@@ -184,10 +184,23 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 		entity.SetID(uuid.New())
 	}
 
-	entity.SetCreatedAt(tenantInfo.ActionAt)
-	entity.SetUpdatedAt(tenantInfo.ActionAt)
-	entity.SetCreatedBy(tenantInfo.UserID)
-	entity.SetUpdatedBy(tenantInfo.UserID)
+	// Tenta usar nova interface primeiro
+	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		auditInfo := AuditInfo{
+			SetAt:  tenantInfo.ActionAt,
+			ByName: tenantInfo.UserName,
+			ByID:   uuid.MustParse(tenantInfo.UserID),
+		}
+		newEntity.SetCreated(auditInfo)
+		newEntity.SetUpdated(auditInfo)
+	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
+		// Fallback para interface antiga
+		legacyEntity.SetCreatedAt(tenantInfo.ActionAt)
+		legacyEntity.SetUpdatedAt(tenantInfo.ActionAt)
+		legacyEntity.SetCreatedBy(tenantInfo.UserID)
+		legacyEntity.SetUpdatedBy(tenantInfo.UserID)
+	}
+
 	entity.SetTenantID(tenantInfo.TenantID)
 
 	// Converte UUIDs para binary subtype 4
@@ -250,8 +263,16 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 
 func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
-	entity.SetUpdatedAt(tenantInfo.ActionAt)
-	entity.SetUpdatedBy(tenantInfo.UserID)
+
+	if auditEntity, ok := any(entity).(AuditableEntity); ok {
+		auditInfo := AuditInfo{
+			SetAt:  tenantInfo.ActionAt,
+			ByName: tenantInfo.UserName,
+			ByID:   uuid.MustParse(tenantInfo.UserID),
+		}
+		auditEntity.SetUpdated(auditInfo)
+	}
+
 	entity.SetTenantID(tenantInfo.TenantID)
 
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}

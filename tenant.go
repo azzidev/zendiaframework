@@ -18,6 +18,7 @@ const (
 type TenantInfo struct {
 	TenantID string    `json:"tenantId"`
 	UserID   string    `json:"userId"`
+	UserName string    `json:"userName"`
 	ActionAt time.Time `json:"actionAt"`
 }
 
@@ -29,6 +30,7 @@ func DefaultTenantExtractor(c *gin.Context) TenantInfo {
 	return TenantInfo{
 		TenantID: c.GetHeader("X-Tenant-ID"),
 		UserID:   c.GetHeader("X-User-ID"),
+		UserName: c.GetHeader("X-User-Name"),
 		ActionAt: time.Now(),
 	}
 }
