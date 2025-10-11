@@ -9,9 +9,10 @@ import (
 
 // TenantContext chaves para contexto de tenant
 const (
-	TenantIDKey = "tenant_id"
-	UserIDKey   = "user_id"
-	ActionAtKey = "action_at"
+	TenantIDKey  = "tenant_id"
+	UserIDKey    = "user_id"
+	UserNameKey  = "user_name"
+	ActionAtKey  = "action_at"
 )
 
 // TenantInfo informações do tenant no contexto
@@ -47,11 +48,13 @@ func TenantMiddleware(extractor TenantExtractor) gin.HandlerFunc {
 		// Adiciona ao contexto do Gin
 		c.Set(TenantIDKey, tenantInfo.TenantID)
 		c.Set(UserIDKey, tenantInfo.UserID)
+		c.Set(UserNameKey, tenantInfo.UserName)
 		c.Set(ActionAtKey, tenantInfo.ActionAt)
 		
 		// Cria contexto com informações do tenant
 		ctx := context.WithValue(c.Request.Context(), TenantIDKey, tenantInfo.TenantID)
 		ctx = context.WithValue(ctx, UserIDKey, tenantInfo.UserID)
+		ctx = context.WithValue(ctx, UserNameKey, tenantInfo.UserName)
 		ctx = context.WithValue(ctx, ActionAtKey, tenantInfo.ActionAt)
 		
 		// Atualiza o request com o novo contexto
@@ -85,11 +88,20 @@ func GetActionAt(ctx context.Context) time.Time {
 	return time.Now()
 }
 
+// GetUserName obtém o user name do contexto
+func GetUserName(ctx context.Context) string {
+	if userName, ok := ctx.Value(UserNameKey).(string); ok {
+		return userName
+	}
+	return ""
+}
+
 // GetTenantInfo obtém todas as informações do tenant do contexto
 func GetTenantInfo(ctx context.Context) TenantInfo {
 	return TenantInfo{
 		TenantID: GetTenantID(ctx),
 		UserID:   GetUserID(ctx),
+		UserName: GetUserName(ctx),
 		ActionAt: GetActionAt(ctx),
 	}
 }
@@ -118,11 +130,20 @@ func GetActionAtFromGin(c *gin.Context) time.Time {
 	return time.Now()
 }
 
+// GetUserNameFromGin obtém user name do gin.Context
+func GetUserNameFromGin(c *gin.Context) string {
+	if userName, exists := c.Get(UserNameKey); exists {
+		return userName.(string)
+	}
+	return ""
+}
+
 // GetTenantInfoFromGin obtém informações do tenant do gin.Context
 func GetTenantInfoFromGin(c *gin.Context) TenantInfo {
 	return TenantInfo{
 		TenantID: GetTenantIDFromGin(c),
 		UserID:   GetUserIDFromGin(c),
+		UserName: GetUserNameFromGin(c),
 		ActionAt: GetActionAtFromGin(c),
 	}
 }
