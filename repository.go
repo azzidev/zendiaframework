@@ -59,10 +59,14 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 	
 	// Tenta usar nova interface primeiro
 	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		var userID uuid.UUID
+		if tenantInfo.UserID != "" {
+			userID = uuid.MustParse(tenantInfo.UserID)
+		}
 		auditInfo := AuditInfo{
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
-			ByID:   uuid.MustParse(tenantInfo.UserID),
+			ByID:   userID,
 		}
 		newEntity.SetCreated(auditInfo)
 		newEntity.SetUpdated(auditInfo)
@@ -90,10 +94,14 @@ func (ar *AuditRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (
 	
 	// Tenta usar nova interface primeiro
 	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		var userID uuid.UUID
+		if tenantInfo.UserID != "" {
+			userID = uuid.MustParse(tenantInfo.UserID)
+		}
 		auditInfo := AuditInfo{
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
-			ByID:   uuid.MustParse(tenantInfo.UserID),
+			ByID:   userID,
 		}
 		newEntity.SetUpdated(auditInfo)
 		newEntity.SetTenantID(tenantInfo.TenantID)

@@ -54,7 +54,7 @@ func main() {
 
 	// Middlewares
 	app.Use(zendia.Logger())
-	app.Use(zendia.CORS())
+	app.Use(zendia.CORS("*"))
 
 	// Setup Firebase Auth
 	app.SetupAuth(zendia.AuthConfig{
@@ -114,10 +114,6 @@ func main() {
 	// Grupo de usuários (já protegido pelo Firebase Auth)
 	users := api.Group("/users")
 
-	// Rotas que exigem roles específicas
-	adminRoutes := api.Group("/admin").RequireRole("admin")
-	_ = api.Group("/management").RequireRole("admin", "manager") // managerRoutes
-
 	// Health específico dos usuários
 	usersHealth := zendia.NewHealthManager()
 	usersHealth.AddCheck(zendia.NewRepositoryHealthCheck("user_repository", userRepo))
@@ -125,10 +121,6 @@ func main() {
 
 	// CRUD Completo com Firebase Auth e UUID nativo
 	users.POST("/", zendia.Handle(func(c *zendia.Context[User]) error {
-		// Dados do usuário autenticado disponíveis automaticamente
-		authUser := c.GetAuthUser()
-		log.Printf("User %s (%s) creating new user", authUser.Name, authUser.Email)
-
 		var user User
 		if err := c.BindJSON(&user); err != nil {
 			return err
@@ -149,7 +141,6 @@ func main() {
 
 		c.Created(map[string]interface{}{
 			"user":        created,
-			"created_by":  authUser,
 			"tenant_info": c.GetTenantInfo(),
 		})
 		return nil
@@ -265,49 +256,6 @@ func main() {
 		return nil
 	}))
 
-	// Endpoint protegido com dados do usuário
-	api.GET("/me", zendia.Handle(func(c *zendia.Context[any]) error {
-		authUser := c.GetAuthUser()
-		c.Success(map[string]interface{}{
-			"user":          authUser,
-			"tenant_info":   c.GetTenantInfo(),
-			"authenticated": c.IsAuthenticated(),
-		})
-		return nil
-	}))
-
-	// Endpoint só para admins
-	adminRoutes.GET("/stats", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success(map[string]interface{}{
-			"message": "Admin only data",
-			"admin":   c.GetAuthUser(),
-		})
-		return nil
-	}))
-
-	log.Println("🚀 ZendiaFramework Demo rodando em :8080")
-	log.Println("")
-	log.Println("📋 Headers necessários:")
-	log.Println("  X-Tenant-ID: ID do tenant")
-	log.Println("  X-User-ID: ID do usuário")
-	log.Println("  Authorization: Bearer valid-token (para /users)")
-	log.Println("")
-	log.Println("🔗 Endpoints disponíveis:")
-	log.Println("  GET  /health - Health check global")
-	log.Println("  GET  /api/v1/health - Health check da API")
-	log.Println("  GET  /api/v1/users/health - Health check dos usuários")
-	log.Println("  GET  /metrics - Métricas da aplicação")
-	log.Println("  GET  /traces - Spans de tracing")
-
-	log.Println("  GET  /swagger/index.html - Documentação Swagger")
-	log.Println("")
-	log.Println("👥 CRUD Usuários (requer auth) - UUID nativo:")
-	log.Println("  POST /api/v1/users - Criar usuário")
-	log.Println("  GET  /api/v1/users - Listar usuários")
-	log.Println("  GET  /api/v1/users/:uuid - Buscar usuário")
-	log.Println("  PUT  /api/v1/users/:uuid - Atualizar usuário")
-	log.Println("  DELETE /api/v1/users/:uuid - Deletar usuário")
-	log.Println("")
 	// Banner automático do framework
 	app.ShowBanner(zendia.BannerConfig{
 		AppName:    "ZendiaFramework Demo",
@@ -315,9 +263,6 @@ func main() {
 		Port:       "8080",
 		ShowRoutes: true,
 	})
-
-	log.Println("💡 Exemplo de teste:")
-	log.Println("curl -H 'Authorization: Bearer <firebase-token>' http://localhost:8080/api/v1/me")
 
 	app.Run(":8080")
 }

@@ -20,7 +20,7 @@ func TestZendia_New(t *testing.T) {
 
 func TestZendia_GET(t *testing.T) {
 	app := New()
-	
+
 	app.GET("/test", Handle(func(c *Context[any]) error {
 		c.Success("test response")
 		return nil
@@ -33,7 +33,7 @@ func TestZendia_GET(t *testing.T) {
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	
+
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.True(t, response["success"].(bool))
@@ -42,11 +42,11 @@ func TestZendia_GET(t *testing.T) {
 
 func TestZendia_POST(t *testing.T) {
 	app := New()
-	
+
 	type TestRequest struct {
 		Name string `json:"name" validate:"required"`
 	}
-	
+
 	app.POST("/test", Handle(func(c *Context[TestRequest]) error {
 		var req TestRequest
 		if err := c.BindJSON(&req); err != nil {
@@ -58,7 +58,7 @@ func TestZendia_POST(t *testing.T) {
 
 	testData := TestRequest{Name: "test"}
 	jsonData, _ := json.Marshal(testData)
-	
+
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("POST", "/test", bytes.NewBuffer(jsonData))
 	req.Header.Set("Content-Type", "application/json")
@@ -71,7 +71,7 @@ func TestZendia_POST(t *testing.T) {
 
 func TestZendia_Group(t *testing.T) {
 	app := New()
-	
+
 	api := app.Group("/api")
 	api.GET("/test", Handle(func(c *Context[any]) error {
 		c.Success("group test")
@@ -89,17 +89,17 @@ func TestZendia_Group(t *testing.T) {
 
 func TestValidator_Validate(t *testing.T) {
 	validator := NewValidator()
-	
+
 	type TestStruct struct {
 		Name  string `validate:"required,min=2"`
 		Email string `validate:"required,email"`
 	}
-	
+
 	// Teste com dados válidos
 	valid := TestStruct{Name: "João", Email: "joao@example.com"}
 	err := validator.Validate(valid)
 	assert.NoError(t, err)
-	
+
 	// Teste com dados inválidos
 	invalid := TestStruct{Name: "A", Email: "invalid-email"}
 	err = validator.Validate(invalid)
@@ -108,7 +108,7 @@ func TestValidator_Validate(t *testing.T) {
 
 func TestErrorHandler_Handle(t *testing.T) {
 	app := New()
-	
+
 	app.GET("/error", Handle(func(c *Context[any]) error {
 		return NewNotFoundError("Resource not found")
 	}))
@@ -120,7 +120,7 @@ func TestErrorHandler_Handle(t *testing.T) {
 	app.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	
+
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.False(t, response["success"].(bool))
@@ -129,8 +129,8 @@ func TestErrorHandler_Handle(t *testing.T) {
 
 func TestMiddleware_CORS(t *testing.T) {
 	app := New()
-	app.Use(CORS())
-	
+	app.Use(CORS("*"))
+
 	app.GET("/test", Handle(func(c *Context[any]) error {
 		c.Success("test")
 		return nil
@@ -144,4 +144,3 @@ func TestMiddleware_CORS(t *testing.T) {
 
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
 }
-

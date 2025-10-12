@@ -17,6 +17,13 @@ func (c *Context[T]) BindJSON(obj *T) error {
 	if err := c.Context.ShouldBindJSON(obj); err != nil {
 		return NewValidationError("Invalid JSON data", err)
 	}
+	
+	// Valida usando o validator customizado
+	validator := NewValidator()
+	if err := validator.Validate(obj); err != nil {
+		return err
+	}
+	
 	return nil
 }
 
@@ -25,6 +32,13 @@ func (c *Context[T]) BindQuery(obj *T) error {
 	if err := c.Context.ShouldBindQuery(obj); err != nil {
 		return NewValidationError("Invalid query parameters", err)
 	}
+	
+	// Valida usando o validator customizado
+	validator := NewValidator()
+	if err := validator.Validate(obj); err != nil {
+		return err
+	}
+	
 	return nil
 }
 
@@ -33,6 +47,13 @@ func (c *Context[T]) BindURI(obj *T) error {
 	if err := c.Context.ShouldBindUri(obj); err != nil {
 		return NewValidationError("Invalid URI parameters", err)
 	}
+	
+	// Valida usando o validator customizado
+	validator := NewValidator()
+	if err := validator.Validate(obj); err != nil {
+		return err
+	}
+	
 	return nil
 }
 

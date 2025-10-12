@@ -186,10 +186,14 @@ func (mar *MongoAuditRepository[T]) Create(ctx context.Context, entity T) (T, er
 
 	// Tenta usar nova interface primeiro
 	if newEntity, ok := any(entity).(AuditableEntity); ok {
+		var userID uuid.UUID
+		if tenantInfo.UserID != "" {
+			userID = uuid.MustParse(tenantInfo.UserID)
+		}
 		auditInfo := AuditInfo{
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
-			ByID:   uuid.MustParse(tenantInfo.UserID),
+			ByID:   userID,
 		}
 		newEntity.SetCreated(auditInfo)
 		newEntity.SetUpdated(auditInfo)
@@ -283,10 +287,14 @@ func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, en
 	tenantInfo := GetTenantInfo(ctx)
 
 	if auditEntity, ok := any(entity).(AuditableEntity); ok {
+		var userID uuid.UUID
+		if tenantInfo.UserID != "" {
+			userID = uuid.MustParse(tenantInfo.UserID)
+		}
 		auditInfo := AuditInfo{
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
-			ByID:   uuid.MustParse(tenantInfo.UserID),
+			ByID:   userID,
 		}
 		auditEntity.SetUpdated(auditInfo)
 	}

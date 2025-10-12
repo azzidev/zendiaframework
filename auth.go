@@ -18,7 +18,7 @@ type AuthConfig struct {
 // SetupAuth configura autenticação no framework
 func (z *Zendia) SetupAuth(config AuthConfig) {
 	z.authConfig = &config
-	
+
 	// Adiciona middleware de auth globalmente
 	z.Use(z.authMiddleware())
 }
@@ -45,7 +45,7 @@ func (z *Zendia) authMiddleware() gin.HandlerFunc {
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		
+
 		// Valida token Firebase
 		token, err := z.authConfig.FirebaseClient.VerifyIDToken(context.Background(), tokenString)
 		if err != nil {
@@ -101,71 +101,14 @@ func (z *Zendia) isPublicRoute(path string) bool {
 	if z.authConfig == nil {
 		return true
 	}
-	
-	publicRoutes := []string{"/health", "/metrics", "/swagger"}
+
+	publicRoutes := []string{"/health"}
 	publicRoutes = append(publicRoutes, z.authConfig.PublicRoutes...)
-	
+
 	for _, route := range publicRoutes {
 		if strings.HasPrefix(path, route) {
 			return true
 		}
 	}
 	return false
-}
-
-// RequireAuth força autenticação em um grupo
-func (rg *RouteGroup) RequireAuth() *RouteGroup {
-	// Já protegido pelo middleware global
-	return rg
-}
-
-// RequireRole exige role específica
-func (rg *RouteGroup) RequireRole(roles ...string) *RouteGroup {
-	rg.Use(func(c *gin.Context) {
-		if !HasAnyRole(c, roles...) {
-			c.JSON(403, gin.H{
-				"success": false,
-				"error":   "Insufficient permissions",
-				"code":    "INSUFFICIENT_PERMISSIONS",
-				"required_roles": roles,
-				"user_role": c.GetString("auth_role"),
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	})
-	return rg
-}
-
-// RequireAuth middleware explícito (redundante mas útil)
-func RequireAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !IsAuthenticated(c) {
-			c.JSON(401, gin.H{
-				"success": false,
-				"error":   "Authentication required",
-				"code":    "AUTH_REQUIRED",
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
-
-// RequireEmailVerified exige email verificado
-func RequireEmailVerified() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !c.GetBool("auth_email_verified") {
-			c.JSON(403, gin.H{
-				"success": false,
-				"error":   "Email verification required",
-				"code":    "EMAIL_NOT_VERIFIED",
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
 }

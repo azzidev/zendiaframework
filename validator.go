@@ -46,32 +46,42 @@ func (v *Validator) RegisterValidation(tag string, fn validator.Func) error {
 	return v.validate.RegisterValidation(tag, fn)
 }
 
-// formatError formata erros de validação
+// formatError formata erros de validação em português
 func (v *Validator) formatError(err validator.FieldError) string {
 	field := err.Field()
 	tag := err.Tag()
 	
 	switch tag {
 	case "required":
-		return fmt.Sprintf("%s is required", field)
+		return fmt.Sprintf("%s é obrigatório", field)
 	case "email":
-		return fmt.Sprintf("%s must be a valid email", field)
+		return fmt.Sprintf("%s deve ser um email válido", field)
 	case "min":
-		return fmt.Sprintf("%s must be at least %s characters", field, err.Param())
+		return fmt.Sprintf("%s deve ter pelo menos %s caracteres", field, err.Param())
 	case "max":
-		return fmt.Sprintf("%s must be at most %s characters", field, err.Param())
+		return fmt.Sprintf("%s deve ter no máximo %s caracteres", field, err.Param())
 	case "len":
-		return fmt.Sprintf("%s must be exactly %s characters", field, err.Param())
+		return fmt.Sprintf("%s deve ter exatamente %s caracteres", field, err.Param())
 	case "gt":
-		return fmt.Sprintf("%s must be greater than %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser maior que %s", field, err.Param())
 	case "gte":
-		return fmt.Sprintf("%s must be greater than or equal to %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser maior ou igual a %s", field, err.Param())
 	case "lt":
-		return fmt.Sprintf("%s must be less than %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser menor que %s", field, err.Param())
 	case "lte":
-		return fmt.Sprintf("%s must be less than or equal to %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser menor ou igual a %s", field, err.Param())
+	case "oneof":
+		return fmt.Sprintf("%s deve ser um dos valores: %s", field, err.Param())
+	case "uuid":
+		return fmt.Sprintf("%s deve ser um UUID válido", field)
+	case "numeric":
+		return fmt.Sprintf("%s deve ser numérico", field)
+	case "alpha":
+		return fmt.Sprintf("%s deve conter apenas letras", field)
+	case "alphanum":
+		return fmt.Sprintf("%s deve conter apenas letras e números", field)
 	default:
-		return fmt.Sprintf("%s failed validation for tag '%s'", field, tag)
+		return fmt.Sprintf("%s falhou na validação '%s'", field, tag)
 	}
 }
 

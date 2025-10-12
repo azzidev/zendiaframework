@@ -17,9 +17,44 @@ type SwaggerInfo struct {
 
 // SetupSwagger configura a documentação Swagger
 func (z *Zendia) SetupSwagger(info SwaggerInfo) {
-	// Configuração básica do Swagger
-	z.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// HTML customizado sem navbar
+	z.engine.GET("/swagger/*any", func(c *gin.Context) {
+		if c.Request.URL.Path == "/swagger/index.html" || c.Request.URL.Path == "/swagger/" {
+			c.Header("Content-Type", "text/html")
+			c.String(200, customSwaggerHTML)
+			return
+		}
+		ginSwagger.WrapHandler(swaggerFiles.Handler)(c)
+	})
 }
+
+const customSwaggerHTML = `<!DOCTYPE html>
+<html>
+<head>
+  <title>ZendiaTask API</title>
+  <link rel="stylesheet" type="text/css" href="./swagger-ui-bundle.css" />
+  <style>
+    .topbar { display: none !important; }
+    .swagger-ui .topbar { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="./swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: './doc.json',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIBundle.presets.standalone
+      ],
+      layout: "BaseLayout"
+    });
+  </script>
+</body>
+</html>`
 
 // APIDoc representa uma anotação de documentação
 type APIDoc struct {
