@@ -80,6 +80,8 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 }
 
 func (ar *AuditRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
+	// Para repositories não-MongoDB, não podemos injetar tenant automaticamente
+	// pois não sabemos a estrutura dos filtros. Isso deve ser feito na camada de use case.
 	return ar.base.GetByID(ctx, id)
 }
 
@@ -110,18 +112,47 @@ func (ar *AuditRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 }
 
 func (ar *AuditRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
+	// Injeta tenant_id automaticamente nos filtros
+	tenantInfo := GetTenantInfo(ctx)
+	if tenantInfo.TenantID != "" && filters != nil {
+		filters["tenant_id"] = tenantInfo.TenantID
+	}
 	return ar.base.GetFirst(ctx, filters)
 }
 
 func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	// Injeta tenant_id automaticamente nos filtros
+	tenantInfo := GetTenantInfo(ctx)
+	if tenantInfo.TenantID != "" {
+		if filters == nil {
+			filters = make(map[string]interface{})
+		}
+		filters["tenant_id"] = tenantInfo.TenantID
+	}
 	return ar.base.GetAll(ctx, filters)
 }
 
 func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+	// Injeta tenant_id automaticamente nos filtros
+	tenantInfo := GetTenantInfo(ctx)
+	if tenantInfo.TenantID != "" {
+		if filters == nil {
+			filters = make(map[string]interface{})
+		}
+		filters["tenant_id"] = tenantInfo.TenantID
+	}
 	return ar.base.GetAllSkipTake(ctx, filters, skip, take)
 }
 
 func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+	// Injeta tenant_id automaticamente nos filtros
+	tenantInfo := GetTenantInfo(ctx)
+	if tenantInfo.TenantID != "" {
+		if filters == nil {
+			filters = make(map[string]interface{})
+		}
+		filters["tenant_id"] = tenantInfo.TenantID
+	}
 	return ar.base.List(ctx, filters)
 }
 
