@@ -11,14 +11,14 @@ import (
 
 // HistoryEntry representa uma entrada no histórico de mudanças
 type HistoryEntry struct {
-	ID           uuid.UUID              `bson:"_id" json:"id"`
-	EntityID     uuid.UUID              `bson:"entity_id" json:"entityId"`
-	EntityType   string                 `bson:"entity_type" json:"entityType"`
-	TenantID     uuid.UUID              `bson:"tenant_id" json:"tenantId"`
-	TriggerName  string                 `bson:"trigger_name" json:"triggerName"`
-	TriggerAt    time.Time              `bson:"trigger_at" json:"triggerAt"`
-	TriggerBy    string                 `bson:"trigger_by" json:"triggerBy"`
-	Changes      map[string]FieldChange `bson:"changes" json:"changes"`
+	ID          uuid.UUID              `bson:"_id" json:"id"`
+	EntityID    uuid.UUID              `bson:"entity_id" json:"entityId"`
+	EntityType  string                 `bson:"entity_type" json:"entityType"`
+	TenantID    uuid.UUID              `bson:"tenant_id" json:"tenantId"`
+	TriggerName string                 `bson:"trigger_name" json:"triggerName"`
+	TriggerAt   time.Time              `bson:"trigger_at" json:"triggerAt"`
+	TriggerBy   string                 `bson:"trigger_by" json:"triggerBy"`
+	Changes     map[string]FieldChange `bson:"changes" json:"changes"`
 }
 
 // FieldChange representa a mudança de um campo específico
@@ -42,7 +42,7 @@ func NewHistoryManager(collection *mongo.Collection) *HistoryManager {
 // RecordChanges registra as mudanças entre dois objetos
 func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID, entityType, triggerName string, before, after interface{}) error {
 	tenantInfo := GetTenantInfo(ctx)
-	
+
 	changes := hm.detectChanges(before, after)
 	if len(changes) == 0 {
 		return nil // Nenhuma mudança detectada
@@ -66,10 +66,10 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 // detectChanges compara dois objetos e retorna apenas os campos que mudaram
 func (hm *HistoryManager) detectChanges(before, after interface{}) map[string]FieldChange {
 	changes := make(map[string]FieldChange)
-	
+
 	beforeVal := reflect.ValueOf(before)
 	afterVal := reflect.ValueOf(after)
-	
+
 	// Se são ponteiros, pega o valor
 	if beforeVal.Kind() == reflect.Ptr {
 		beforeVal = beforeVal.Elem()
@@ -77,21 +77,21 @@ func (hm *HistoryManager) detectChanges(before, after interface{}) map[string]Fi
 	if afterVal.Kind() == reflect.Ptr {
 		afterVal = afterVal.Elem()
 	}
-	
+
 	beforeType := beforeVal.Type()
-	
+
 	for i := 0; i < beforeVal.NumField(); i++ {
 		field := beforeType.Field(i)
 		fieldName := field.Name
-		
+
 		// Pula campos de auditoria e sistema
 		if hm.shouldSkipField(fieldName) {
 			continue
 		}
-		
+
 		beforeFieldVal := beforeVal.Field(i)
 		afterFieldVal := afterVal.Field(i)
-		
+
 		// Compara os valores
 		if !reflect.DeepEqual(beforeFieldVal.Interface(), afterFieldVal.Interface()) {
 			changes[fieldName] = FieldChange{
@@ -100,7 +100,7 @@ func (hm *HistoryManager) detectChanges(before, after interface{}) map[string]Fi
 			}
 		}
 	}
-	
+
 	return changes
 }
 
@@ -111,7 +111,7 @@ func (hm *HistoryManager) shouldSkipField(fieldName string) bool {
 		"CreatedAt", "UpdatedAt", "CreatedBy", "UpdatedBy",
 		"TenantID", "ID",
 	}
-	
+
 	for _, skip := range skipFields {
 		if fieldName == skip {
 			return true
@@ -123,30 +123,30 @@ func (hm *HistoryManager) shouldSkipField(fieldName string) bool {
 // GetHistory busca o histórico de uma entidade
 func (hm *HistoryManager) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
 	tenantInfo := GetTenantInfo(ctx)
-	
+
 	filter := map[string]interface{}{
 		"entity_id": entityID,
 		"tenant_id": uuid.MustParse(tenantInfo.TenantID),
 	}
-	
+
 	cursor, err := hm.collection.Find(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
-	
+
 	var history []HistoryEntry
 	if err = cursor.All(ctx, &history); err != nil {
 		return nil, err
 	}
-	
+
 	return history, nil
 }
 
 // HistoryAuditRepository repository com histórico automático
 type HistoryAuditRepository[T MongoAuditableEntity] struct {
-	base    *MongoAuditRepository[T]
-	history *HistoryManager
+	base       *MongoAuditRepository[T]
+	history    *HistoryManager
 	entityType string
 }
 
@@ -154,7 +154,7 @@ type HistoryAuditRepository[T MongoAuditableEntity] struct {
 func NewHistoryAuditRepository[T MongoAuditableEntity](collection *mongo.Collection, historyCollection *mongo.Collection, entityType string) *HistoryAuditRepository[T] {
 	base := NewMongoAuditRepository[T](collection)
 	history := NewHistoryManager(historyCollection)
-	
+
 	return &HistoryAuditRepository[T]{
 		base:       base,
 		history:    history,
@@ -180,16 +180,16 @@ func (har *HistoryAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, 
 	if err != nil {
 		return entity, err
 	}
-	
+
 	// Atualiza
 	updated, err := har.base.Update(ctx, id, entity)
 	if err != nil {
 		return entity, err
 	}
-	
+
 	// Registra histórico
 	har.history.RecordChanges(ctx, id, har.entityType, "Update", before, updated)
-	
+
 	return updated, nil
 }
 
