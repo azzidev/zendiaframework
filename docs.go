@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"github.com/swaggo/swag"
 )
 
 // SwaggerInfo contém informações da documentação
@@ -17,44 +18,23 @@ type SwaggerInfo struct {
 
 // SetupSwagger configura a documentação Swagger
 func (z *Zendia) SetupSwagger(info SwaggerInfo) {
-	// HTML customizado sem navbar
-	z.engine.GET("/swagger/*any", func(c *gin.Context) {
-		if c.Request.URL.Path == "/swagger/index.html" || c.Request.URL.Path == "/swagger/" {
-			c.Header("Content-Type", "text/html")
-			c.String(200, customSwaggerHTML)
-			return
-		}
-		ginSwagger.WrapHandler(swaggerFiles.Handler)(c)
+	// Configura as informações do Swagger
+	swag.Register(swag.Name, &swag.Spec{
+		InfoInstanceName: "swagger",
+		SwaggerTemplate: `{
+			"swagger": "2.0",
+			"info": {
+				"title": "` + info.Title + `",
+				"description": "` + info.Description + `",
+				"version": "` + info.Version + `"
+			},
+			"host": "` + info.Host + `",
+			"basePath": "` + info.BasePath + `"
+		}`,
 	})
+	
+	z.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
-
-const customSwaggerHTML = `<!DOCTYPE html>
-<html>
-<head>
-  <title>ZendiaTask API</title>
-  <link rel="stylesheet" type="text/css" href="./swagger-ui-bundle.css" />
-  <style>
-    .topbar { display: none !important; }
-    .swagger-ui .topbar { display: none !important; }
-  </style>
-</head>
-<body>
-  <div id="swagger-ui"></div>
-  <script src="./swagger-ui-bundle.js"></script>
-  <script>
-    SwaggerUIBundle({
-      url: './doc.json',
-      dom_id: '#swagger-ui',
-      deepLinking: true,
-      presets: [
-        SwaggerUIBundle.presets.apis,
-        SwaggerUIBundle.presets.standalone
-      ],
-      layout: "BaseLayout"
-    });
-  </script>
-</body>
-</html>`
 
 // APIDoc representa uma anotação de documentação
 type APIDoc struct {

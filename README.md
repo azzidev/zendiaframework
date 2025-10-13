@@ -25,8 +25,10 @@
 
 - 🔐 **Autenticação** - Sistema flexível de auth com tokens
 - ✅ **Validação Robusta** - Validação automática com mensagens em português
+- 🔍 **Tenant Isolation** - Filtros automáticos por tenant em todas as queries
 - 🚨 **Error Handling** - Tratamento padronizado e consistente de erros
-- 📝 **Auditoria** - Tracking automático de criação/modificação
+- 📝 **Auditoria & Histórico** - Tracking automático + histórico de mudanças
+- 🕒 **Change Tracking** - Registra apenas campos alterados com metadados
 
 ### 🔧 **DevEx & Produção**
 
@@ -136,7 +138,7 @@ func createUser(c *zendia.Context[User]) error {
 }
 ```
 
-### Repository com Auditoria
+### Repository com Auditoria e Histórico
 
 ```go
 import "github.com/google/uuid"
@@ -146,32 +148,30 @@ type User struct {
     Name      string    `json:"name" validate:"required,min=2"`
     Email     string    `json:"email" validate:"required,email"`
     TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"` // Preenchido automaticamente
-    CreatedAt time.Time `bson:"created_at" json:"created_at"` // Preenchido automaticamente
-    CreatedBy string    `bson:"created_by" json:"created_by"` // Preenchido automaticamente
-    UpdatedAt time.Time `bson:"updated_at" json:"updated_at"` // Atualizado automaticamente
-    UpdatedBy string    `bson:"updated_by" json:"updated_by"` // Atualizado automaticamente
+    Created   zendia.AuditInfo `bson:"created" json:"created"`   // Nova interface de auditoria
+    Updated   zendia.AuditInfo `bson:"updated" json:"updated"`   // Nova interface de auditoria
+    DeletedAt *time.Time `bson:"deleted_at" json:"deletedAt,omitempty"`
+    DeletedBy string     `bson:"deleted_by" json:"deletedBy,omitempty"`
 }
 
 // Implementa interface para auditoria automática
-func (u *User) GetID() uuid.UUID        { return u.ID }
-func (u *User) SetID(id uuid.UUID)      { u.ID = id }
-func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
-func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
-func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
-func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
-func (u *User) SetTenantID(s string)     { u.TenantID = uuid.MustParse(s) }
+func (u *User) GetID() uuid.UUID              { return u.ID }
+func (u *User) SetID(id uuid.UUID)            { u.ID = id }
+func (u *User) SetCreated(info zendia.AuditInfo) { u.Created = info }
+func (u *User) SetUpdated(info zendia.AuditInfo) { u.Updated = info }
+func (u *User) SetTenantID(s string)          { u.TenantID = uuid.MustParse(s) }
 
-// MongoDB com UUID nativo - auditoria automática!
-baseRepo := zendia.NewMongoAuditRepository[*User](collection)
-// ou
-baseRepo := zendia.NewAuditRepository[*User, uuid.UUID](memoryRepo)
+// Repository com auditoria e histórico automático!
+repo := zendia.NewHistoryAuditRepository[*User](collection, historyCollection, "User")
+// ou apenas auditoria
+repo := zendia.NewMongoAuditRepository[*User](collection)
 ```
 
 ---
 
 ## 🛠️ Funcionalidades Avançadas
 
-### 📊 Monitoramento Completo
+### 📊 Monitoramento e Histórico Completo
 
 ```go
 app := zendia.New()
@@ -188,11 +188,20 @@ globalHealth := zendia.NewHealthManager()
 globalHealth.AddCheck(zendia.NewDatabaseHealthCheck("main_db", dbPing))
 app.AddHealthEndpoint(globalHealth) // GET /health
 
-// Health por grupo
-users := app.Group("/users")
-usersHealth := zendia.NewHealthManager()
-usersHealth.AddCheck(zendia.NewMemoryHealthCheck(1024))
-users.AddHealthEndpoint(usersHealth) // GET /users/health
+// Repository com histórico automático
+projectRepo := zendia.NewHistoryAuditRepository[*Project](
+    db.Collection("projects"),
+    db.Collection("history"),
+    "Project",
+)
+
+// Histórico automático em updates
+project, err := projectRepo.Update(ctx, id, updatedProject)
+// Registra automaticamente apenas os campos que mudaram!
+
+// Consultar histórico
+history, err := projectRepo.GetHistory(ctx, projectID)
+// Retorna: [{"Name": {"before": "Old", "after": "New"}}]
 ```
 
 ### 🔥 Firebase Authentication
@@ -245,7 +254,7 @@ app.Use(zendia.RateLimiter(100, time.Minute))
 app.Use(zendia.CORS())
 ```
 
-### 📚 Documentação Automática
+### 📚 Documentação Automática (Sem Navbar!)
 
 ```go
 app.SetupSwagger(zendia.SwaggerInfo{
@@ -263,7 +272,14 @@ app.SetupSwagger(zendia.SwaggerInfo{
 // @Success 201 {object} User
 // @Router /users [post]
 func createUser(c *zendia.Context[User]) error {
-    // Implementação
+    var user User
+    if err := c.BindJSON(&user); err != nil {
+        return err // Validação em português automática!
+    }
+    // Auditoria e tenant automáticos
+    created, err := userRepo.Create(c.Request.Context(), &user)
+    c.Created(created)
+    return nil
 }
 ```
 
