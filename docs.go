@@ -18,20 +18,22 @@ type SwaggerInfo struct {
 
 // SetupSwagger configura a documentação Swagger
 func (z *Zendia) SetupSwagger(info SwaggerInfo) {
-	// Configura as informações do Swagger
-	swag.Register(swag.Name, &swag.Spec{
-		InfoInstanceName: "swagger",
-		SwaggerTemplate: `{
-			"swagger": "2.0",
-			"info": {
-				"title": "` + info.Title + `",
-				"description": "` + info.Description + `",
-				"version": "` + info.Version + `"
-			},
-			"host": "` + info.Host + `",
-			"basePath": "` + info.BasePath + `"
-		}`,
-	})
+	// Só registra se ainda não foi registrado
+	if swag.GetSwagger(swag.Name) == nil {
+		swag.Register(swag.Name, &swag.Spec{
+			InfoInstanceName: "swagger",
+			SwaggerTemplate: `{
+				"swagger": "2.0",
+				"info": {
+					"title": "` + info.Title + `",
+					"description": "` + info.Description + `",
+					"version": "` + info.Version + `"
+				},
+				"host": "` + info.Host + `",
+				"basePath": "` + info.BasePath + `"
+			}`,
+		})
+	}
 	
 	z.engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }
