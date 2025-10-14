@@ -48,11 +48,16 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 		return nil // Nenhuma mudança detectada
 	}
 
+	var tenantUUID uuid.UUID
+	if tenantInfo.TenantID != "" {
+		tenantUUID = uuid.MustParse(tenantInfo.TenantID)
+	}
+
 	entry := HistoryEntry{
 		ID:          uuid.New(),
 		EntityID:    entityID,
 		EntityType:  entityType,
-		TenantID:    uuid.MustParse(tenantInfo.TenantID),
+		TenantID:    tenantUUID,
 		TriggerName: triggerName,
 		TriggerAt:   tenantInfo.ActionAt,
 		TriggerBy:   tenantInfo.UserID,
@@ -126,7 +131,10 @@ func (hm *HistoryManager) GetHistory(ctx context.Context, entityID uuid.UUID) ([
 
 	filter := map[string]interface{}{
 		"entity_id": entityID,
-		"tenant_id": uuid.MustParse(tenantInfo.TenantID),
+	}
+	
+	if tenantInfo.TenantID != "" {
+		filter["tenant_id"] = uuid.MustParse(tenantInfo.TenantID)
 	}
 
 	cursor, err := hm.collection.Find(ctx, filter)
