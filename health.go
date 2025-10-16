@@ -109,7 +109,7 @@ func (d *DatabaseHealthCheck) Check(ctx context.Context) HealthCheckResult {
 			Message: fmt.Sprintf("Database connection failed: %v", err),
 			Details: map[string]interface{}{
 				"response_time_ms": time.Since(start).Milliseconds(),
-				"error": err.Error(),
+				"error":            err.Error(),
 			},
 		}
 	}
@@ -141,20 +141,20 @@ func (m *MemoryHealthCheck) Name() string {
 func (m *MemoryHealthCheck) Check(ctx context.Context) HealthCheckResult {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	currentMemoryMB := int64(memStats.Alloc / 1024 / 1024)
 	heapMB := int64(memStats.HeapAlloc / 1024 / 1024)
 	sysMB := int64(memStats.Sys / 1024 / 1024)
-	
+
 	details := map[string]interface{}{
-		"alloc_mb":     currentMemoryMB,
-		"heap_mb":      heapMB,
-		"sys_mb":       sysMB,
-		"max_mb":       m.maxMemoryMB,
-		"gc_cycles":    memStats.NumGC,
-		"goroutines":   runtime.NumGoroutine(),
+		"alloc_mb":   currentMemoryMB,
+		"heap_mb":    heapMB,
+		"sys_mb":     sysMB,
+		"max_mb":     m.maxMemoryMB,
+		"gc_cycles":  memStats.NumGC,
+		"goroutines": runtime.NumGoroutine(),
 	}
-	
+
 	if currentMemoryMB > m.maxMemoryMB {
 		return HealthCheckResult{
 			Status:  HealthStatusDown,
@@ -162,7 +162,7 @@ func (m *MemoryHealthCheck) Check(ctx context.Context) HealthCheckResult {
 			Details: details,
 		}
 	}
-	
+
 	if currentMemoryMB > m.maxMemoryMB*80/100 {
 		return HealthCheckResult{
 			Status:  HealthStatusWarn,
@@ -170,7 +170,7 @@ func (m *MemoryHealthCheck) Check(ctx context.Context) HealthCheckResult {
 			Details: details,
 		}
 	}
-	
+
 	return HealthCheckResult{
 		Status:  HealthStatusUp,
 		Message: "Memory usage normal",
@@ -188,7 +188,7 @@ func (rg *RouteGroup) AddHealthEndpoint(healthManager *HealthManager) {
 		if status == HealthStatusDown {
 			c.JSON(503, health)
 		} else {
-			c.Success(health)
+			c.Success("Success in get endpoint health.", health)
 		}
 		return nil
 	}))
@@ -204,7 +204,7 @@ func (z *Zendia) AddHealthEndpoint(healthManager *HealthManager) {
 		if status == HealthStatusDown {
 			c.JSON(503, health)
 		} else {
-			c.Success(health)
+			c.Success("Success in get endpoint health.", health)
 		}
 		return nil
 	}))

@@ -139,7 +139,7 @@ func main() {
 			return err
 		}
 
-		c.Created(map[string]interface{}{
+		c.Created("Criado com sucesso.", map[string]interface{}{
 			"user":        created,
 			"tenant_info": c.GetTenantInfo(),
 		})
@@ -167,7 +167,7 @@ func main() {
 			return err
 		}
 
-		c.Success(map[string]interface{}{
+		c.Success("Capturado com sucesso.", map[string]interface{}{
 			"users":     users,
 			"tenant_id": c.GetTenantID(),
 			"count":     len(users),
@@ -193,7 +193,7 @@ func main() {
 			return err
 		}
 
-		c.Success(user)
+		c.Success("Capturado com sucesso usando ID.", user)
 		return nil
 	}))
 
@@ -220,7 +220,7 @@ func main() {
 			return err
 		}
 
-		c.Success(updated)
+		c.Success("Atualizado com sucesso.", updated)
 		return nil
 	}))
 
@@ -247,12 +247,12 @@ func main() {
 
 	// Endpoints públicos (não protegidos)
 	app.GET("/public/metrics", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success(metrics.GetStats())
+		c.Success("Metricas encontradas.", metrics.GetStats())
 		return nil
 	}))
 
 	app.GET("/public/traces", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success(tracer.GetSpans())
+		c.Success("Traces encontradas.", tracer.GetSpans())
 		return nil
 	}))
 

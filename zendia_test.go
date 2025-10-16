@@ -22,7 +22,7 @@ func TestZendia_GET(t *testing.T) {
 	app := New()
 
 	app.GET("/test", Handle(func(c *Context[any]) error {
-		c.Success("test response")
+		c.Success("Message Teste: ", "test response")
 		return nil
 	}))
 
@@ -52,7 +52,7 @@ func TestZendia_POST(t *testing.T) {
 		if err := c.BindJSON(&req); err != nil {
 			return err
 		}
-		c.Created(req)
+		c.Created("Message Teste: ", req)
 		return nil
 	}))
 
@@ -74,7 +74,7 @@ func TestZendia_Group(t *testing.T) {
 
 	api := app.Group("/api")
 	api.GET("/test", Handle(func(c *Context[any]) error {
-		c.Success("group test")
+		c.Success("Message Teste: ", "group test")
 		return nil
 	}))
 
@@ -132,7 +132,7 @@ func TestMiddleware_CORS(t *testing.T) {
 	app.Use(CORS("*"))
 
 	app.GET("/test", Handle(func(c *Context[any]) error {
-		c.Success("test")
+		c.Success("Message Teste: ", "test")
 		return nil
 	}))
 
