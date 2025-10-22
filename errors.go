@@ -15,6 +15,7 @@ const (
 	UnauthorizedErrorType
 	InternalErrorType
 	BadRequestErrorType
+	ConflictErrorType
 )
 
 // APIError representa um erro da API
@@ -102,6 +103,15 @@ func NewBadRequestError(message string) *APIError {
 		Type:    BadRequestErrorType,
 		Message: message,
 		Code:    http.StatusBadRequest,
+	}
+}
+
+// NewConflictError cria um erro de conflito (409)
+func NewConflictError(message string) *APIError {
+	return &APIError{
+		Type:    ConflictErrorType,
+		Message: message,
+		Code:    http.StatusConflict,
 	}
 }
 
