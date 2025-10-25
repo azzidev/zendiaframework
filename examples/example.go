@@ -59,13 +59,13 @@ func main() {
 	app.Use(zendia.Logger())
 	app.Use(zendia.CORS("*"))
 
-	// Setup Firebase Auth (só autentica email/senha)
+	// Setup Firebase Auth - extrai custom claims automaticamente
 	app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
 		FirebaseClient: firebaseAuth,
 		PublicRoutes:   []string{"/public", "/docs", "/auth"},
 	})
 
-	// Rota de login PÚBLICA: email/senha → Firebase token
+	// Rota de login PÚBLICA: email/senha → Firebase token + custom claims
 	app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
 		var req struct {
 			Email    string `json:"email" validate:"required,email"`
@@ -75,22 +75,28 @@ func main() {
 			return err
 		}
 
-		// Autentica no Firebase (REST API)
+		// 1. Autentica no Firebase (REST API)
 		// token, err := authenticateFirebase(req.Email, req.Password)
 		// if err != nil { return zendia.NewUnauthorizedError("Credenciais inválidas") }
 
-		// Dev busca dados do SEU banco
+		// 2. Decodifica token para pegar Firebase UID
+		// decodedToken, err := firebaseAuth.VerifyIDToken(ctx, token)
+		// if err != nil { return zendia.NewUnauthorizedError("Token inválido") }
+
+		// 3. Busca dados do SEU banco
 		// userFromDB := myUserRepo.FindByEmail(req.Email)
 
-		// Seta tenant e dados customizados na sessão
-		c.SetTenant("company-123")  // ← Do seu banco
-		c.SetUserID("user-456")     // ← ID do seu sistema
-		c.SetUserName("João Silva") // ← Nome do seu sistema
+		// 4. Seta custom claims (PARA SEMPRE)
+		// claims := map[string]interface{}{
+		//     "tenant_id": userFromDB.TenantID,
+		//     "user_id":   userFromDB.ID,
+		//     "role":      userFromDB.Role,
+		// }
+		// err = firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)
 
 		c.Success("Login realizado", map[string]interface{}{
-			"message":   "Use o token retornado nas próximas requests",
-			"user_id":   c.GetUserID(),
-			"tenant_id": c.GetTenantID(),
+			"message": "Custom claims setados - token funciona para sempre",
+			"token":   "firebase-token-with-custom-claims",
 		})
 		return nil
 	}))
@@ -294,8 +300,9 @@ func main() {
 		c.Success("Dados do usuário", map[string]interface{}{
 			"firebase_uid": user.FirebaseUID, // ← Do Firebase
 			"email":        user.Email,       // ← Do Firebase
-			"name":         user.Name,        // ← Da sessão
-			"tenant_id":    user.TenantID,    // ← Da sessão
+			"user_id":      user.ID,          // ← Custom claim
+			"tenant_id":    user.TenantID,    // ← Custom claim
+			"role":         user.Role,        // ← Custom claim
 			"tenant_info":  c.GetTenantInfo(),
 		})
 		return nil
@@ -320,10 +327,10 @@ func main() {
 		ShowRoutes: true,
 	})
 
-	log.Println("\n🔥 Teste o novo fluxo:")
-	log.Println("1. POST /auth/login com email/senha → Retorna Firebase token")
-	log.Println("2. GET /api/v1/me com token → Mostra dados Firebase + sessão")
-	log.Println("3. POST /api/v1/users com token → Usa tenant automaticamente")
+	log.Println("\n🔥 Teste o fluxo com custom claims:")
+	log.Println("1. POST /auth/login com email/senha → Seta custom claims")
+	log.Println("2. GET /api/v1/me com token → Framework extrai custom claims")
+	log.Println("3. POST /api/v1/users com token → Tenant/user_id automáticos")
 
 	app.Run(":8080")
 }

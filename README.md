@@ -75,57 +75,68 @@ func main() {
     
     app := zendia.New()
     
-    // Setup Firebase Auth (só autentica - email/senha)
+    // Setup Firebase Auth - extrai custom claims automaticamente
     app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
         FirebaseClient: firebaseAuth,
         PublicRoutes:   []string{"/public", "/auth"},
     })
     
-    // Login PÚBLICO: email/senha → Firebase token
+    // Login PÚBLICO: email/senha → Firebase token + custom claims
     app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
         var req struct {
             Email    string `json:"email" validate:"required,email"`
             Password string `json:"password" validate:"required"`
         }
-        if err := c.BindJSON(&req); err != nil {
+        if err := c.Context.ShouldBindJSON(&req); err != nil {
             return err
         }
         
-        // Autentica no Firebase (REST API)
+        // 1. Autentica no Firebase
         token, err := authenticateFirebase(req.Email, req.Password)
         if err != nil {
             c.Unauthorized("Credenciais inválidas")
             return nil
         }
         
-        // Busca usuário no SEU banco
+        // 2. Decodifica token para pegar Firebase UID
+        decodedToken, err := firebaseAuth.VerifyIDToken(c.Request.Context(), token)
+        if err != nil {
+            c.Unauthorized("Token inválido")
+            return nil
+        }
+        
+        // 3. Busca usuário no SEU banco
         // userFromDB := myRepo.FindByEmail(req.Email)
         
-        // Seta dados na sessão
-        c.SetTenant("company-123")     // ← Do seu banco
-        c.SetUserID("user-456")        // ← ID do seu sistema
-        c.SetUserName("João Silva")    // ← Nome do seu banco
-        c.SetRole("admin")             // ← Role do seu sistema
+        // 4. Seta custom claims (PARA SEMPRE)
+        claims := map[string]interface{}{
+            "tenant_id": "company-123",  // ← Do seu banco
+            "user_id":   "user-456",     // ← ID do seu sistema
+            "role":      "admin",        // ← Role do seu sistema
+        }
+        err = firebaseAuth.SetCustomUserClaims(c.Request.Context(), decodedToken.UID, claims)
+        if err != nil {
+            c.InternalError("Falha ao configurar sessão")
+            return nil
+        }
         
         c.Success("Login realizado", map[string]interface{}{
-            "token":    token,
-            "user_id":  c.GetUserID(),
-            "tenant":   c.GetTenantID(),
+            "token": token,
         })
         return nil
     }))
   
-    // Rota protegida - usa token Firebase + dados da sessão
+    // Rota protegida - framework extrai custom claims automaticamente
     api := app.Group("/api/v1")
     api.GET("/hello", zendia.Handle(func(c *zendia.Context[any]) error {
         user := c.GetAuthUser()
         
         c.Success("Hello from ZendiaFramework! 🎉", map[string]interface{}{
-            "firebase_uid": user.FirebaseUID,
-            "email":        user.Email,        // ← Do Firebase
-            "name":         user.Name,         // ← Da sessão
-            "tenant":       user.TenantID,     // ← Da sessão
-            "role":         user.Role,         // ← Da sessão
+            "firebase_uid": user.FirebaseUID, // ← Do Firebase
+            "email":        user.Email,       // ← Do Firebase
+            "user_id":      user.ID,          // ← Custom claim
+            "tenant":       user.TenantID,    // ← Custom claim
+            "role":         user.Role,        // ← Custom claim
         })
         return nil
     }))
@@ -140,15 +151,15 @@ func main() {
 }
 ```
 
-### Teste com Email/Senha
+### Teste com Custom Claims
 
 ```bash
-# 1. Login PÚBLICO (email/senha → Firebase token)
+# 1. Login PÚBLICO (email/senha → Firebase token + custom claims)
 curl -X POST -H "Content-Type: application/json" \
      -d '{"email":"user@company.com","password":"123456"}' \
      http://localhost:8080/auth/login
 
-# 2. Rota protegida (usa Firebase token retornado)
+# 2. Rota protegida (framework extrai custom claims automaticamente)
 curl -H "Authorization: Bearer <firebase-token>" \
      http://localhost:8080/api/v1/hello
 
@@ -253,41 +264,45 @@ history, err := projectRepo.GetHistory(ctx, projectID)
 ### 🔥 Firebase Authentication
 
 ```go
-// Setup Firebase Auth (só autentica email/senha)
+// Setup Firebase Auth - extrai custom claims automaticamente
 app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
     FirebaseClient: firebaseAuth,
     PublicRoutes:   []string{"/public", "/docs", "/auth"},
 })
 
-// Login PÚBLICO: email/senha → Firebase token
+// Login PÚBLICO: email/senha → Firebase token + custom claims
 app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
     var req struct {
         Email    string `json:"email"`
         Password string `json:"password"`
     }
-    c.BindJSON(&req)
+    c.Context.ShouldBindJSON(&req)
     
-    // Autentica Firebase + busca no banco
+    // 1. Autentica Firebase
     token, _ := authenticateFirebase(req.Email, req.Password)
+    decodedToken, _ := firebaseAuth.VerifyIDToken(ctx, token)
+    
+    // 2. Busca no banco
     userFromDB := myUserRepo.FindByEmail(req.Email)
     
-    // Seta dados na sessão
-    c.SetTenant(userFromDB.TenantID)
-    c.SetUserID(userFromDB.ID)
-    c.SetUserName(userFromDB.Name)
-    c.SetRole(userFromDB.Role)
+    // 3. Seta custom claims (PARA SEMPRE)
+    claims := map[string]interface{}{
+        "tenant_id": userFromDB.TenantID,
+        "user_id":   userFromDB.ID,
+        "role":      userFromDB.Role,
+    }
+    firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)
     
     c.Success("Login realizado", map[string]interface{}{
         "token": token,
-        "user":  userFromDB,
     })
     return nil
 }))
 
-// Todas as rotas protegidas usam Firebase token + dados da sessão
+// Todas as rotas protegidas - framework extrai custom claims automaticamente
 api := app.Group("/api/v1")
 
-// Roles específicas (setadas no login)
+// Roles específicas (custom claims)
 adminRoutes := api.Group("/admin", zendia.RequireRole("admin"))
 managerRoutes := api.Group("/management", zendia.RequireRole("admin", "manager"))
 
@@ -302,9 +317,9 @@ api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
     c.Success("Perfil do usuário", map[string]interface{}{
         "firebase_uid": user.FirebaseUID, // ← Do Firebase
         "email":        user.Email,       // ← Do Firebase
-        "name":         user.Name,        // ← Da sessão
-        "tenant":       user.TenantID,    // ← Da sessão
-        "role":         user.Role,        // ← Da sessão
+        "user_id":      user.ID,          // ← Custom claim
+        "tenant":       user.TenantID,    // ← Custom claim
+        "role":         user.Role,        // ← Custom claim
     })
     return nil
 }))
@@ -468,12 +483,12 @@ GET /api/v1/users/health    # Repository operations reais
 
 - ✅ **Token Validation** automática
 - ✅ **Email/Password** provider support
-- ✅ **User Data** extraído: `firebase_uid` + `email`
+- ✅ **Custom Claims** extraídos automaticamente
+- ✅ **Multi-tenant** com custom claims
 - ✅ **Role-based Access** com `RequireRole()`
-- ✅ **Multi-tenant** com dados setados pelo dev
 - ✅ **Public Routes** configuráveis
 - ✅ **Context Integration** com `c.GetAuthUser()`
-- ✅ **Session Management** com `c.SetTenant()`, `c.SetUserID()`
+- ✅ **Auditoria Automática** com tenant/user_id
 - ✅ **Error Handling** padronizado
 
 ---
@@ -560,11 +575,14 @@ curl http://localhost:8080/public/metrics
    # 2. POST /login com token → Dev seta tenant do banco
    # 3. Próximas requests → Tenant automático da sessão
    ```
-6. **Token Firebase** (email/senha provider):
+6. **Token Firebase** (com custom claims):
    ```json
    {
      "uid": "firebase-uid-123",
-     "email": "user@example.com"
+     "email": "user@example.com",
+     "tenant_id": "company-123",
+     "user_id": "user-456",
+     "role": "admin"
    }
    ```
 

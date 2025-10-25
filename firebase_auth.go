@@ -54,9 +54,11 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 
 		if tenantID, ok := token.Claims["tenant_id"].(string); ok && tenantID != "" {
 			c.Set("auth_tenant_id", tenantID)
+			c.Header("X-Tenant-ID", tenantID)
 		}
 		if userID, ok := token.Claims["user_id"].(string); ok && userID != "" {
 			c.Set("auth_user_id", userID)
+			c.Header("X-User-ID", userID)
 		}
 		if role, ok := token.Claims["role"].(string); ok && role != "" {
 			c.Set("auth_role", role)
