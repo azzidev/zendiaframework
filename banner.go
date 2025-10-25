@@ -29,12 +29,13 @@ func (z *Zendia) ShowBanner(config BannerConfig) {
 	log.Printf("🚀 %s v%s running on :%s", config.AppName, config.Version, config.Port)
 
 	// Info de autenticação
-	if z.authConfig != nil {
+	if z.firebaseAuthConfig != nil {
 		log.Println("🔐 Firebase Authentication enabled")
-		if len(z.authConfig.PublicRoutes) > 0 {
-			log.Printf("📋 Public routes: %s", strings.Join(z.authConfig.PublicRoutes, ", "))
+		if len(z.firebaseAuthConfig.PublicRoutes) > 0 {
+			log.Printf("📋 Public routes: %s", strings.Join(z.firebaseAuthConfig.PublicRoutes, ", "))
 		}
 		log.Println("🔗 Use: Authorization: Bearer <firebase-token>")
+		log.Println("💡 POST /login to set tenant after Firebase auth")
 	} else {
 		log.Println("📋 Use headers: X-Tenant-ID and X-User-ID")
 	}

@@ -75,28 +75,48 @@ func main() {
     
     app := zendia.New()
     
-    // Setup Firebase Auth
-    app.SetupAuth(zendia.AuthConfig{
+    // Setup Firebase Auth (só autentica)
+    app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
         FirebaseClient: firebaseAuth,
-        PublicRoutes:   []string{"/public"},
+        PublicRoutes:   []string{"/public", "/login"},
     })
+    
+    // Login: Dev seta tenant manualmente
+    app.POST("/login", zendia.Handle(func(c *zendia.Context[any]) error {
+        user := c.GetAuthUser() // Dados do Firebase
+        
+        // Dev busca no SEU banco
+        // userFromDB := myRepo.FindByEmail(user.Email)
+        
+        // Seta tenant na sessão
+        c.SetTenant("company-123")  // ← Do seu banco
+        c.SetUserID("user-456")     // ← ID do seu sistema
+        c.SetRole("admin")          // ← Role do seu sistema
+        
+        c.Success("Login realizado", map[string]interface{}{
+            "user":     user,
+            "tenant":   c.GetTenantID(),
+        })
+        return nil
+    }))
   
-    // Rota protegida automaticamente
+    // Rota protegida - tenant automático da sessão
     api := app.Group("/api/v1")
     api.GET("/hello", zendia.Handle(func(c *zendia.Context[any]) error {
-        user := c.GetAuthUser() // Dados do usuário autenticado
-        c.Success(map[string]interface{}{
-            "message": "Hello from ZendiaFramework! 🎉",
+        user := c.GetAuthUser()
+        tenantID := c.GetTenantID() // ← Da sessão, não do Firebase
+        
+        c.Success("Hello from ZendiaFramework! 🎉", map[string]interface{}{
             "user":    user.Name,
             "email":   user.Email,
-            "tenant":  c.GetTenantID(),
+            "tenant":  tenantID,
         })
         return nil
     }))
     
     // Rota pública
     app.GET("/public/status", zendia.Handle(func(c *zendia.Context[any]) error {
-        c.Success(map[string]string{"status": "ok"})
+        c.Success("Status OK", map[string]string{"status": "ok"})
         return nil
     }))
   
@@ -107,10 +127,13 @@ func main() {
 ### Teste com Firebase Token
 
 ```bash
-# Rota protegida (precisa de token)
+# 1. Login (seta tenant na sessão)
+curl -X POST -H "Authorization: Bearer <firebase-token>" http://localhost:8080/login
+
+# 2. Rota protegida (usa tenant da sessão)
 curl -H "Authorization: Bearer <firebase-token>" http://localhost:8080/api/v1/hello
 
-# Rota pública (sem token)
+# 3. Rota pública (sem token)
 curl http://localhost:8080/public/status
 ```
 
@@ -121,11 +144,15 @@ curl http://localhost:8080/public/status
 ### Multi-Tenant por Padrão
 
 ```go
-// Contexto de tenant automático em TODAS as requisições
+// Contexto de tenant automático após login
 func createUser(c *zendia.Context[User]) error {
-    // TenantID, UserID e ActionAt já disponíveis!
-    tenantID := c.GetTenantID()  // Automático
-    userID := c.GetUserID()      // Automático
+    // TenantID vem da sessão (setado no login)
+    tenantID := c.GetTenantID()  // ← Da sessão
+    userID := c.GetUserID()      // ← Da sessão
+    
+    if tenantID == "" {
+        return zendia.NewBadRequestError("Faça login primeiro")
+    }
   
     var user User
     c.BindJSON(&user) // Validação automática
@@ -133,7 +160,7 @@ func createUser(c *zendia.Context[User]) error {
     // Auditoria automática (CreatedBy, CreatedAt, TenantID)
     created, err := userRepo.Create(c.Request.Context(), &user)
   
-    c.Created(created)
+    c.Created("Usuário criado", created)
     return nil
 }
 ```
@@ -207,39 +234,51 @@ history, err := projectRepo.GetHistory(ctx, projectID)
 ### 🔥 Firebase Authentication
 
 ```go
-// Setup Firebase Auth uma vez
-opt := option.WithCredentialsFile("path/to/serviceAccountKey.json")
-firebaseApp, err := firebase.NewApp(context.Background(), nil, opt)
-if err != nil {
-    log.Fatal("Firebase init failed:", err)
-}
-firebaseAuth, err := firebaseApp.Auth(context.Background())
-if err != nil {
-    log.Fatal("Firebase Auth init failed:", err)
-}
-
-app.SetupAuth(zendia.AuthConfig{
+// Setup Firebase Auth (só autentica)
+app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
     FirebaseClient: firebaseAuth,
-    PublicRoutes:   []string{"/public", "/docs"},
+    PublicRoutes:   []string{"/public", "/docs", "/login"},
 })
 
-// Todas as rotas são protegidas automaticamente
-api := app.Group("/api/v1") // Já protegido!
+// Login obrigatório para setar tenant
+app.POST("/login", zendia.Handle(func(c *zendia.Context[any]) error {
+    user := c.GetAuthUser() // Dados do Firebase
+    
+    // Dev busca dados no SEU banco
+    userFromDB := myUserRepo.FindByEmail(user.Email)
+    
+    // Seta dados na sessão
+    c.SetTenant(userFromDB.TenantID)
+    c.SetUserID(userFromDB.ID)
+    c.SetRole(userFromDB.Role)
+    
+    c.Success("Login realizado", user)
+    return nil
+}))
 
-// Roles específicas
-adminRoutes := api.Group("/admin").RequireRole("admin")
-managerRoutes := api.Group("/management").RequireRole("admin", "manager")
+// Todas as rotas protegidas usam dados da sessão
+api := app.Group("/api/v1")
 
-// Email verificado obrigatório
+// Roles específicas (setadas no login)
+adminRoutes := api.Group("/admin", zendia.RequireRole("admin"))
+managerRoutes := api.Group("/management", zendia.RequireRole("admin", "manager"))
+
+// Email verificado (do Firebase)
 verifiedRoutes := api.Group("/verified", zendia.RequireEmailVerified())
 
-// Dados do usuário em qualquer handler
+// Dados completos em qualquer handler
 api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
     user := c.GetAuthUser()
+    tenantID := c.GetTenantID() // ← Da sessão
+    
     if c.HasRole("admin") {
         // Lógica para admin
     }
-    c.Success(user)
+    
+    c.Success("Perfil do usuário", map[string]interface{}{
+        "user":     user,
+        "tenant":   tenantID,
+    })
     return nil
 }))
 ```
@@ -300,30 +339,39 @@ func createUser(c *zendia.Context[User]) error {
 ```go
 // E-commerce multi-tenant
 api.POST("/orders", zendia.Handle(func(c *zendia.Context[Order]) error {
-    user := c.GetAuthUser() // Usuário autenticado
-    // TenantID automático, UserID do Firebase
-    // Auditoria automática para compliance
+    user := c.GetAuthUser()   // Firebase data
+    tenantID := c.GetTenantID() // ← Da sessão (login)
+    
+    if tenantID == "" {
+        return zendia.NewBadRequestError("Faça login primeiro")
+    }
+    
+    // Auditoria automática com tenant da sessão
 }))
 
 // Sistema bancário - só gerentes
 managerRoutes.PUT("/accounts/:id", zendia.Handle(func(c *zendia.Context[Account]) error {
     user := c.GetAuthUser()
-    log.Printf("Manager %s updating account", user.Email)
+    tenantID := c.GetTenantID() // ← Da sessão
+    
+    log.Printf("Manager %s (tenant: %s) updating account", user.Email, tenantID)
     // Todas as alterações auditadas automaticamente
 }))
 
 // Plataforma SaaS - dados por tenant
 api.GET("/analytics", zendia.Handle(func(c *zendia.Context[any]) error {
-    user := c.GetAuthUser()
-    tenantID := user.TenantID // Do token Firebase
+    tenantID := c.GetTenantID() // ← Da sessão, não do Firebase
+    
     // Dados filtrados automaticamente por tenant
-    // Métricas de uso por cliente autenticado
+    analytics := analyticsRepo.GetByTenant(tenantID)
+    c.Success("Analytics", analytics)
+    return nil
 }))
 
 // Admin dashboard - só admins
 adminRoutes.GET("/dashboard", zendia.Handle(func(c *zendia.Context[any]) error {
-    // Acesso garantido apenas para role 'admin'
-    c.Success(map[string]string{"message": "Admin data"})
+    // Role setada no login, não no Firebase
+    c.Success("Admin data", map[string]string{"message": "Admin dashboard"})
     return nil
 }))
 ```
@@ -452,14 +500,20 @@ Veja [`examples/complete_example.go`](examples/complete_example.go) para um exem
 cd examples
 go run example.go
 
-# Testar rota pública
-curl http://localhost:8080/public/metrics
+# 1. Login (seta tenant na sessão)
+curl -X POST -H "Authorization: Bearer <firebase-token>" http://localhost:8080/login
 
-# Testar rota protegida (precisa de Firebase token)
+# 2. Testar dados do usuário (com tenant da sessão)
 curl -H "Authorization: Bearer <firebase-token>" http://localhost:8080/api/v1/me
 
-# Testar rota admin (precisa de role 'admin' no token)
-curl -H "Authorization: Bearer <admin-firebase-token>" http://localhost:8080/api/v1/admin/stats
+# 3. Criar usuário (usa tenant automaticamente)
+curl -X POST -H "Authorization: Bearer <firebase-token>" \
+     -H "Content-Type: application/json" \
+     -d '{"name":"João","email":"joao@test.com","age":30}' \
+     http://localhost:8080/api/v1/users
+
+# 4. Rota pública (sem token)
+curl http://localhost:8080/public/metrics
 ```
 
 ### 🔧 Setup Firebase
@@ -472,13 +526,18 @@ curl -H "Authorization: Bearer <admin-firebase-token>" http://localhost:8080/api
    ```bash
    export GOOGLE_APPLICATION_CREDENTIALS="path/to/serviceAccountKey.json"
    ```
-5. **Token Structure** no Firebase deve ter:
+5. **Fluxo Correto**:
+   ```bash
+   # 1. Firebase só autentica (email/password)
+   # 2. POST /login com token → Dev seta tenant do banco
+   # 3. Próximas requests → Tenant automático da sessão
+   ```
+6. **Token Firebase** (padrão, sem custom claims):
    ```json
    {
      "email": "user@example.com",
      "name": "User Name",
-     "role": "admin",
-     "tenant_id": "company-123"
+     "email_verified": true
    }
    ```
 

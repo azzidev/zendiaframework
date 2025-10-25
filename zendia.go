@@ -8,11 +8,11 @@ import (
 
 // Zendia representa a instância principal do ZendiaFramework
 type Zendia struct {
-	engine      *gin.Engine
-	middlewares []gin.HandlerFunc
-	validator   *Validator
-	errorHandler ErrorHandler
-	authConfig  *AuthConfig
+	engine             *gin.Engine
+	middlewares        []gin.HandlerFunc
+	validator          *Validator
+	errorHandler       ErrorHandler
+	firebaseAuthConfig *FirebaseAuthConfig
 }
 
 // New cria uma nova instância do framework

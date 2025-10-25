@@ -1,6 +1,7 @@
 package zendia
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -169,4 +170,43 @@ func (c *Context[T]) GetActionAt() time.Time {
 // GetTenantInfo retorna todas as informações do tenant
 func (c *Context[T]) GetTenantInfo() TenantInfo {
 	return GetTenantInfoFromGin(c.Context)
+}
+
+// SetTenant seta o tenant ID no contexto da sessão
+func (c *Context[T]) SetTenant(tenantID string) {
+	c.Set("auth_tenant_id", tenantID)
+	c.Set(TenantIDKey, tenantID)
+	c.Header("X-Tenant-ID", tenantID)
+	
+	// Atualiza context para auditoria
+	ctx := context.WithValue(c.Request.Context(), "tenant_id", tenantID)
+	ctx = context.WithValue(ctx, TenantIDKey, tenantID)
+	c.Request = c.Request.WithContext(ctx)
+}
+
+// SetUserID seta o user ID customizado no contexto
+func (c *Context[T]) SetUserID(userID string) {
+	c.Set("auth_user_id", userID)
+	c.Set(UserIDKey, userID)
+	c.Header("X-User-ID", userID)
+	
+	// Atualiza context para auditoria
+	ctx := context.WithValue(c.Request.Context(), "user_id", userID)
+	ctx = context.WithValue(ctx, UserIDKey, userID)
+	c.Request = c.Request.WithContext(ctx)
+}
+
+// SetRole seta a role do usuário no contexto
+func (c *Context[T]) SetRole(role string) {
+	c.Set("auth_role", role)
+}
+
+// SetUserName seta o nome do usuário no contexto
+func (c *Context[T]) SetUserName(userName string) {
+	c.Set("auth_name", userName)
+	c.Set(UserNameKey, userName)
+	
+	// Atualiza context
+	ctx := context.WithValue(c.Request.Context(), UserNameKey, userName)
+	c.Request = c.Request.WithContext(ctx)
 }
