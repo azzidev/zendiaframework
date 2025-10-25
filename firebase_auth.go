@@ -53,27 +53,17 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Extrai APENAS dados do Firebase (não assume banco)
+		// Extrai APENAS dados do Firebase (email/senha só tem UID e email)
 		firebaseUID := token.UID
 		email, _ := token.Claims["email"].(string)
-		name, _ := token.Claims["name"].(string)
-		picture, _ := token.Claims["picture"].(string)
-		emailVerified, _ := token.Claims["email_verified"].(bool)
 
-		// Seta contexto do Gin - SEM tenant (dev deve setar)
+		// Seta contexto do Gin - SEM tenant/user_id (dev deve setar no login)
 		c.Set("auth_firebase_uid", firebaseUID)
-		c.Set("auth_user_id", firebaseUID) // Default: Firebase UID
 		c.Set("auth_email", email)
-		c.Set("auth_name", name)
-		c.Set("auth_picture", picture)
-		c.Set("auth_email_verified", emailVerified)
 		c.Set("auth_token", token)
 
-		// Headers básicos
-		c.Header("X-User-ID", firebaseUID)
-
 		// Context básico
-		ctx := context.WithValue(c.Request.Context(), "user_id", firebaseUID)
+		ctx := context.WithValue(c.Request.Context(), "firebase_uid", firebaseUID)
 		ctx = context.WithValue(ctx, "email", email)
 		c.Request = c.Request.WithContext(ctx)
 
@@ -101,14 +91,11 @@ func (z *Zendia) isFirebasePublicRoute(path string) bool {
 // GetAuthUser retorna dados do usuário autenticado
 func (c *Context[T]) GetAuthUser() *AuthUser {
 	return &AuthUser{
-		ID:            c.GetString("auth_user_id"),
-		FirebaseUID:   c.GetString("auth_firebase_uid"),
-		Email:         c.GetString("auth_email"),
-		Name:          c.GetString("auth_name"),
-		Picture:       c.GetString("auth_picture"),
-		EmailVerified: c.GetBool("auth_email_verified"),
-		TenantID:      c.GetString("auth_tenant_id"),
-		Role:          c.GetString("auth_role"),
+		ID:          c.GetString("auth_user_id"),      // Setado pelo dev no login
+		FirebaseUID: c.GetString("auth_firebase_uid"), // UID do Firebase
+		Email:       c.GetString("auth_email"),        // Email do Firebase
+		Name:        c.GetString("auth_name"),         // Setado pelo dev no login
+		TenantID:    c.GetString("auth_tenant_id"),    // Setado pelo dev no login
 	}
 }
 
@@ -118,18 +105,10 @@ func (c *Context[T]) HasRole(role string) bool {
 	return userRole == role || userRole == "admin" // admin tem todas as roles
 }
 
-// RequireEmailVerified middleware para exigir email verificado
+// RequireEmailVerified middleware para exigir email verificado (não aplicável para email/senha)
 func RequireEmailVerified() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		emailVerified, exists := c.Get("auth_email_verified")
-		if !exists || !emailVerified.(bool) {
-			c.JSON(403, gin.H{
-				"success": false,
-				"message": "Email não verificado",
-			})
-			c.Abort()
-			return
-		}
+		// Email/senha não tem verificação automática - sempre passa
 		c.Next()
 	}
 }
@@ -170,12 +149,9 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 
 // AuthUser representa dados do usuário autenticado
 type AuthUser struct {
-	ID            string `json:"id"`
-	FirebaseUID   string `json:"firebase_uid"`
-	Email         string `json:"email"`
-	Name          string `json:"name"`
-	Picture       string `json:"picture"`
-	EmailVerified bool   `json:"email_verified"`
-	TenantID      string `json:"tenant_id"`
-	Role          string `json:"role"`
+	ID          string `json:"id"`           // Firebase UID ou ID customizado
+	FirebaseUID string `json:"firebase_uid"` // UID do Firebase
+	Email       string `json:"email"`        // Email do Firebase
+	Name        string `json:"name"`         // Nome setado pelo dev
+	TenantID    string `json:"tenant_id"`    // Tenant setado pelo dev
 }

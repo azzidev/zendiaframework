@@ -6,11 +6,11 @@ import (
 	"time"
 
 	firebase "firebase.google.com/go/v4"
-	"google.golang.org/api/option"
 	zendia "github.com/azzidev/zendiaframework"
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"google.golang.org/api/option"
 )
 
 // User entidade completa com auditoria e tenant usando UUID nativo
@@ -59,30 +59,38 @@ func main() {
 	app.Use(zendia.Logger())
 	app.Use(zendia.CORS("*"))
 
-	// Setup Firebase Auth (só autentica, não resolve dados)
+	// Setup Firebase Auth (só autentica email/senha)
 	app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
 		FirebaseClient: firebaseAuth,
-		PublicRoutes:   []string{"/public", "/docs"},
+		PublicRoutes:   []string{"/public", "/docs", "/auth"},
 	})
 
-	// Rota de login para setar tenant manualmente
-	app.POST("/login", zendia.Handle(func(c *zendia.Context[any]) error {
-		// Firebase já validou o token no middleware
-		user := c.GetAuthUser()
-		
-		// Dev busca dados do SEU banco (exemplo)
-		// userFromDB := myUserRepo.FindByEmail(user.Email)
-		
+	// Rota de login PÚBLICA: email/senha → Firebase token
+	app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
+		var req struct {
+			Email    string `json:"email" validate:"required,email"`
+			Password string `json:"password" validate:"required"`
+		}
+		if err := c.Context.ShouldBindJSON(&req); err != nil {
+			return err
+		}
+
+		// Autentica no Firebase (REST API)
+		// token, err := authenticateFirebase(req.Email, req.Password)
+		// if err != nil { return zendia.NewUnauthorizedError("Credenciais inválidas") }
+
+		// Dev busca dados do SEU banco
+		// userFromDB := myUserRepo.FindByEmail(req.Email)
+
 		// Seta tenant e dados customizados na sessão
 		c.SetTenant("company-123")  // ← Do seu banco
 		c.SetUserID("user-456")     // ← ID do seu sistema
-		c.SetRole("admin")          // ← Role do seu sistema
 		c.SetUserName("João Silva") // ← Nome do seu sistema
-		
+
 		c.Success("Login realizado", map[string]interface{}{
-			"user":      user,
+			"message":   "Use o token retornado nas próximas requests",
+			"user_id":   c.GetUserID(),
 			"tenant_id": c.GetTenantID(),
-			"role":      c.GetAuthUser().Role,
 		})
 		return nil
 	}))
@@ -154,7 +162,7 @@ func main() {
 		// TenantID e UserID vêm automaticamente da sessão!
 		tenantID := c.GetTenantID() // ← Setado no /login
 		userID := c.GetUserID()     // ← Setado no /login
-		
+
 		if tenantID == "" {
 			return zendia.NewBadRequestError("Faça login primeiro para setar o tenant")
 		}
@@ -284,9 +292,11 @@ func main() {
 	api.GET("/me", zendia.Handle(func(c *zendia.Context[any]) error {
 		user := c.GetAuthUser()
 		c.Success("Dados do usuário", map[string]interface{}{
-			"user":       user,
-			"tenant_id":  c.GetTenantID(),
-			"tenant_info": c.GetTenantInfo(),
+			"firebase_uid": user.FirebaseUID, // ← Do Firebase
+			"email":        user.Email,       // ← Do Firebase
+			"name":         user.Name,        // ← Da sessão
+			"tenant_id":    user.TenantID,    // ← Da sessão
+			"tenant_info":  c.GetTenantInfo(),
 		})
 		return nil
 	}))
@@ -311,9 +321,9 @@ func main() {
 	})
 
 	log.Println("\n🔥 Teste o novo fluxo:")
-	log.Println("1. POST /login com token Firebase → Seta tenant na sessão")
-	log.Println("2. GET /api/v1/me → Mostra dados + tenant da sessão")
-	log.Println("3. POST /api/v1/users → Usa tenant automaticamente")
+	log.Println("1. POST /auth/login com email/senha → Retorna Firebase token")
+	log.Println("2. GET /api/v1/me com token → Mostra dados Firebase + sessão")
+	log.Println("3. POST /api/v1/users com token → Usa tenant automaticamente")
 
 	app.Run(":8080")
 }
