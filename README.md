@@ -111,7 +111,8 @@ func main() {
         // 4. Seta custom claims (PARA SEMPRE)
         claims := map[string]interface{}{
             "tenant_id": "company-123",  // ← Do seu banco
-            "user_id":   "user-456",     // ← ID do seu sistema
+            "user_uuid": "user-456",     // ← ID do seu sistema
+            "user_name": "John Doe",     // ← Nome do usuário
             "role":      "admin",        // ← Role do seu sistema
         }
         err = firebaseAuth.SetCustomUserClaims(c.Request.Context(), decodedToken.UID, claims)
@@ -270,6 +271,17 @@ app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
     PublicRoutes:   []string{"/public", "/docs", "/auth"},
 })
 
+// 🎯 Use as CONSTANTES do framework para custom claims
+import zendia "github.com/azzidev/zendiaframework"
+
+claims := map[string]interface{}{
+    zendia.ClaimTenantID: userFromDB.TenantID,  // ✅ Constante
+    zendia.ClaimUserUUID: userFromDB.ID,        // ✅ Constante  
+    zendia.ClaimUserName: userFromDB.Name,      // ✅ Constante
+    zendia.ClaimRole:     zendia.RoleAdmin,     // ✅ Constante
+}
+// ❌ NÃO use strings: "tenant_id", "user_uuid", etc.
+
 // Login PÚBLICO: email/senha → Firebase token + custom claims
 app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
     var req struct {
@@ -285,11 +297,12 @@ app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
     // 2. Busca no banco
     userFromDB := myUserRepo.FindByEmail(req.Email)
     
-    // 3. Seta custom claims (PARA SEMPRE)
+    // 3. Seta custom claims (PARA SEMPRE) - USE AS CONSTANTES!
     claims := map[string]interface{}{
-        "tenant_id": userFromDB.TenantID,
-        "user_id":   userFromDB.ID,
-        "role":      userFromDB.Role,
+        zendia.ClaimTenantID: userFromDB.TenantID,
+        zendia.ClaimUserUUID: userFromDB.ID,
+        zendia.ClaimUserName: userFromDB.Name,
+        zendia.ClaimRole:     userFromDB.Role,
     }
     firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)
     
@@ -581,7 +594,8 @@ curl http://localhost:8080/public/metrics
      "uid": "firebase-uid-123",
      "email": "user@example.com",
      "tenant_id": "company-123",
-     "user_id": "user-456",
+     "user_uuid": "user-456",
+     "user_name": "John Doe",
      "role": "admin"
    }
    ```

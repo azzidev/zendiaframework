@@ -48,29 +48,32 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		firebaseUID := token.UID
 		email, _ := token.Claims["email"].(string)
 
-		c.Set("auth_firebase_uid", firebaseUID)
-		c.Set("auth_email", email)
-		c.Set("auth_token", token)
+		c.Set(AuthFirebaseUIDKey, firebaseUID)
+		c.Set(AuthEmailKey, email)
+		c.Set(AuthTokenKey, token)
 
-		if tenantID, ok := token.Claims["tenant_id"].(string); ok && tenantID != "" {
-			c.Set("auth_tenant_id", tenantID)
-			c.Header("X-Tenant-ID", tenantID)
+		if tenantID, ok := token.Claims[ClaimTenantID].(string); ok && tenantID != "" {
+			c.Set(AuthTenantIDKey, tenantID)
+			c.Header(HeaderTenantID, tenantID)
 		}
-		if userID, ok := token.Claims["user_id"].(string); ok && userID != "" {
-			c.Set("auth_user_id", userID)
+		if userID, ok := token.Claims[ClaimUserUUID].(string); ok && userID != "" {
+			c.Set(AuthUserIDKey, userID)
 			c.Set(UserIDKey, userID)
-			c.Header("X-User-ID", userID)
+			c.Header(HeaderUserID, userID)
 		}
-		if role, ok := token.Claims["role"].(string); ok && role != "" {
-			c.Set("auth_role", role)
+		if role, ok := token.Claims[ClaimRole].(string); ok && role != "" {
+			c.Set(AuthRoleKey, role)
+		}
+		if name, ok := token.Claims[ClaimUserName].(string); ok && name != "" {
+			c.Set(AuthNameKey, name)
 		}
 
-		ctx := context.WithValue(c.Request.Context(), "firebase_uid", firebaseUID)
-		ctx = context.WithValue(ctx, "email", email)
-		if tenantID, exists := c.Get("auth_tenant_id"); exists {
+		ctx := context.WithValue(c.Request.Context(), ContextFirebaseUID, firebaseUID)
+		ctx = context.WithValue(ctx, ContextEmail, email)
+		if tenantID, exists := c.Get(AuthTenantIDKey); exists {
 			ctx = context.WithValue(ctx, TenantIDKey, tenantID)
 		}
-		if userID, exists := c.Get("auth_user_id"); exists {
+		if userID, exists := c.Get(AuthUserIDKey); exists {
 			ctx = context.WithValue(ctx, UserIDKey, userID)
 		}
 		c.Request = c.Request.WithContext(ctx)
@@ -84,7 +87,7 @@ func (z *Zendia) isFirebasePublicRoute(path string) bool {
 		return true
 	}
 
-	publicRoutes := []string{"/health", "/docs", "/swagger"}
+	publicRoutes := DefaultPublicRoutes
 	publicRoutes = append(publicRoutes, z.firebaseAuthConfig.PublicRoutes...)
 
 	for _, route := range publicRoutes {
@@ -97,23 +100,23 @@ func (z *Zendia) isFirebasePublicRoute(path string) bool {
 
 func (c *Context[T]) GetAuthUser() *AuthUser {
 	return &AuthUser{
-		ID:          c.GetString("auth_user_id"),
-		FirebaseUID: c.GetString("auth_firebase_uid"),
-		Email:       c.GetString("auth_email"),
-		Name:        c.GetString("auth_name"),
-		TenantID:    c.GetString("auth_tenant_id"),
-		Role:        c.GetString("auth_role"),
+		ID:          c.GetString(AuthUserIDKey),
+		FirebaseUID: c.GetString(AuthFirebaseUIDKey),
+		Email:       c.GetString(AuthEmailKey),
+		Name:        c.GetString(AuthNameKey),
+		TenantID:    c.GetString(AuthTenantIDKey),
+		Role:        c.GetString(AuthRoleKey),
 	}
 }
 
 func (c *Context[T]) HasRole(role string) bool {
-	userRole := c.GetString("auth_role")
-	return userRole == role || userRole == "admin"
+	userRole := c.GetString(AuthRoleKey)
+	return userRole == role || userRole == RoleAdmin
 }
 
 func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userRole, exists := c.Get("auth_role")
+		userRole, exists := c.Get(AuthRoleKey)
 		if !exists {
 			c.JSON(403, gin.H{
 				"success": false,
@@ -124,7 +127,7 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 		}
 
 		role := userRole.(string)
-		if role == "admin" {
+		if role == RoleAdmin {
 			c.Next()
 			return
 		}

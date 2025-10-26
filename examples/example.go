@@ -89,7 +89,8 @@ func main() {
 		// 4. Seta custom claims (PARA SEMPRE)
 		// claims := map[string]interface{}{
 		//     "tenant_id": userFromDB.TenantID,
-		//     "user_id":   userFromDB.ID,
+		//     "user_uuid": userFromDB.ID,
+		//     "user_name": userFromDB.Name,
 		//     "role":      userFromDB.Role,
 		// }
 		// err = firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)

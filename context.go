@@ -61,27 +61,27 @@ func (c *Context[T]) BindURI(obj *T) error {
 // Success retorna uma resposta de sucesso padronizada
 func (c *Context[T]) Success(message string, data interface{}) {
 	c.JSON(http.StatusOK, gin.H{
-		"message": message,
-		"success": true,
-		"data":    data,
+		ResponseMessage: message,
+		ResponseSuccess: true,
+		ResponseData:    data,
 	})
 }
 
 // Created retorna uma resposta de criação bem-sucedida
 func (c *Context[T]) Created(message string, data interface{}) {
 	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"message": message,
-		"data":    data,
+		ResponseSuccess: true,
+		ResponseMessage: message,
+		ResponseData:    data,
 	})
 }
 
 // Updated retorna uma resposta de atualização bem-sucedida
 func (c *Context[T]) Updated(message string, data interface{}) {
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": message,
-		"data":    data,
+		ResponseSuccess: true,
+		ResponseMessage: message,
+		ResponseData:    data,
 	})
 }
 
@@ -93,11 +93,11 @@ func (c *Context[T]) NoContent() {
 // Fail retorna uma resposta de erro padronizada
 func (c *Context[T]) Fail(code int, message string, err error) {
 	response := gin.H{
-		"success": false,
-		"message": message,
+		ResponseSuccess: false,
+		ResponseMessage: message,
 	}
 	if err != nil {
-		response["error"] = err.Error()
+		response[ResponseError] = err.Error()
 	}
 	c.JSON(code, response)
 }
@@ -174,36 +174,36 @@ func (c *Context[T]) GetTenantInfo() TenantInfo {
 
 // SetTenant seta o tenant ID no contexto da sessão
 func (c *Context[T]) SetTenant(tenantID string) {
-	c.Set("auth_tenant_id", tenantID)
+	c.Set(AuthTenantIDKey, tenantID)
 	c.Set(TenantIDKey, tenantID)
-	c.Header("X-Tenant-ID", tenantID)
+	c.Header(HeaderTenantID, tenantID)
 	
 	// Atualiza context para auditoria
-	ctx := context.WithValue(c.Request.Context(), "tenant_id", tenantID)
+	ctx := context.WithValue(c.Request.Context(), ContextTenantID, tenantID)
 	ctx = context.WithValue(ctx, TenantIDKey, tenantID)
 	c.Request = c.Request.WithContext(ctx)
 }
 
 // SetUserID seta o user ID customizado no contexto
 func (c *Context[T]) SetUserID(userID string) {
-	c.Set("auth_user_id", userID)
+	c.Set(AuthUserIDKey, userID)
 	c.Set(UserIDKey, userID)
-	c.Header("X-User-ID", userID)
+	c.Header(HeaderUserID, userID)
 	
 	// Atualiza context para auditoria
-	ctx := context.WithValue(c.Request.Context(), "user_id", userID)
+	ctx := context.WithValue(c.Request.Context(), ContextUserID, userID)
 	ctx = context.WithValue(ctx, UserIDKey, userID)
 	c.Request = c.Request.WithContext(ctx)
 }
 
 // SetRole seta a role do usuário no contexto
 func (c *Context[T]) SetRole(role string) {
-	c.Set("auth_role", role)
+	c.Set(AuthRoleKey, role)
 }
 
 // SetUserName seta o nome do usuário no contexto
 func (c *Context[T]) SetUserName(userName string) {
-	c.Set("auth_name", userName)
+	c.Set(AuthNameKey, userName)
 	c.Set(UserNameKey, userName)
 	
 	// Atualiza context
