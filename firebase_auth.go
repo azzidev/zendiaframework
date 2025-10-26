@@ -87,7 +87,7 @@ func (z *Zendia) isFirebasePublicRoute(path string) bool {
 		return true
 	}
 
-	publicRoutes := DefaultPublicRoutes
+	publicRoutes := []string{"/health", "/docs", "/swagger"}
 	publicRoutes = append(publicRoutes, z.firebaseAuthConfig.PublicRoutes...)
 
 	for _, route := range publicRoutes {
