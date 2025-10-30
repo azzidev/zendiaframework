@@ -1,5 +1,16 @@
 <div align="center">
-  <h1>🚀 ZendiaFramework</h1>
+  <h1>
+    <svg width="1em" height="1em" viewBox="0 0 100 100" style="display: inline-block; vertical-align: middle; margin-right: 0.2em;">
+      <defs>
+        <linearGradient id="zGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#00ADD8;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#0066CC;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <path d="M15 25 L75 25 L35 65 L85 65 L85 75 L25 75 L65 35 L15 35 Z" fill="url(#zGradient)" stroke="#003366" stroke-width="2"/>
+    </svg>
+    ZendiaFramework
+  </h1>
   <p><strong>Framework Go modular e poderoso para APIs RESTful</strong></p>
 
   [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/)

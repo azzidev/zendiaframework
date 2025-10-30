@@ -66,6 +66,8 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		}
 		if name, ok := token.Claims[ClaimUserName].(string); ok && name != "" {
 			c.Set(AuthNameKey, name)
+			c.Set(UserNameKey, name)
+			c.Header(HeaderUserName, name)
 		}
 
 		ctx := context.WithValue(c.Request.Context(), ContextFirebaseUID, firebaseUID)
@@ -75,6 +77,9 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		}
 		if userID, exists := c.Get(AuthUserIDKey); exists {
 			ctx = context.WithValue(ctx, UserIDKey, userID)
+		}
+		if userName, exists := c.Get(AuthNameKey); exists {
+			ctx = context.WithValue(ctx, UserNameKey, userName)
 		}
 		c.Request = c.Request.WithContext(ctx)
 
