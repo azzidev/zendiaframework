@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -40,10 +42,15 @@ func (u *User) SetTenantID(s string) {
 }
 
 func main() {
-	// Inicializa Firebase
+	// Initialize Firebase with proper error handling
 	ctx := context.Background()
-	// Use suas credenciais Firebase
-	opt := option.WithCredentialsFile("path/to/serviceAccountKey.json")
+	// Use environment variable or fallback
+	credentialsPath := zendia.DefaultCredentialsPath
+	if envPath := os.Getenv(zendia.EnvGoogleCredentials); envPath != "" {
+		credentialsPath = envPath
+	}
+
+	opt := option.WithCredentialsFile(credentialsPath)
 	firebaseApp, err := firebase.NewApp(ctx, nil, opt)
 	if err != nil {
 		log.Fatal("Firebase init failed:", err)
@@ -62,14 +69,14 @@ func main() {
 	// Setup Firebase Auth - extrai custom claims automaticamente
 	app.SetupFirebaseAuth(zendia.FirebaseAuthConfig{
 		FirebaseClient: firebaseAuth,
-		PublicRoutes:   []string{"/public", "/docs", "/auth"},
+		PublicRoutes:   []string{zendia.RoutePublic, zendia.RouteDocs, zendia.RouteAuth},
 	})
 
 	// Rota de login PÚBLICA: email/senha → Firebase token + custom claims
-	app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
+	app.POST(zendia.RouteLogin, zendia.Handle(func(c *zendia.Context[any]) error {
 		var req struct {
-			Email    string `json:"email" validate:"required,email"`
-			Password string `json:"password" validate:"required"`
+			Email    string `json:"email" validate:"required,email,max=255"`
+			Password string `json:"password" validate:"required,min=8,max=128"`
 		}
 		if err := c.Context.ShouldBindJSON(&req); err != nil {
 			return err
@@ -86,18 +93,18 @@ func main() {
 		// 3. Busca dados do SEU banco
 		// userFromDB := myUserRepo.FindByEmail(req.Email)
 
-		// 4. Seta custom claims (PARA SEMPRE)
+		// 4. Seta custom claims (PARA SEMPRE) - USE AS CONSTANTES!
 		// claims := map[string]interface{}{
-		//     "tenant_id": userFromDB.TenantID,
-		//     "user_uuid": userFromDB.ID,
-		//     "user_name": userFromDB.Name,
-		//     "role":      userFromDB.Role,
+		//     zendia.ClaimTenantID: userFromDB.TenantID,
+		//     zendia.ClaimUserUUID: userFromDB.ID,
+		//     zendia.ClaimUserName: userFromDB.Name,
+		//     zendia.ClaimRole:     userFromDB.Role,
 		// }
 		// err = firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)
 
-		c.Success("Login realizado", map[string]interface{}{
-			"message": "Custom claims setados - token funciona para sempre",
-			"token":   "firebase-token-with-custom-claims",
+		c.Success(zendia.MsgLoginRealized, map[string]interface{}{
+			zendia.ResponseMessage: zendia.MsgCustomClaimsSet,
+			"token":               zendia.MsgTokenPlaceholder,
 		})
 		return nil
 	}))
@@ -117,12 +124,12 @@ func main() {
 		Title:       "ZendiaFramework Complete API",
 		Description: "API completa demonstrando todas as funcionalidades com UUID nativo",
 		Version:     "1.0",
-		Host:        "localhost:8080",
-		BasePath:    "/api/v1",
+		Host:        zendia.DefaultHost,
+		BasePath:    zendia.DefaultBasePath,
 	})
 
 	// Conecta MongoDB (opcional)
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI("mongodb://localhost:27017"))
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(zendia.DefaultMongoURI))
 	var userRepo interface{}
 	if err != nil {
 		// Fallback para repository em memória
@@ -132,14 +139,14 @@ func main() {
 		})
 		userRepo = zendia.NewAuditRepository[*User, uuid.UUID](baseRepo)
 	} else {
-		// Usa MongoDB com UUID nativo
+		// Usa MongoDB com UUID nativo - VOCÊ escolhe o nome do banco!
 		log.Println("Conectado ao MongoDB")
-		collection := client.Database("zendia_demo").Collection("users")
+		collection := client.Database("meu_projeto").Collection("usuarios")
 		userRepo = zendia.NewMongoAuditRepository[*User](collection)
 	}
 
 	// API v1
-	api := app.Group("/api/v1")
+	api := app.Group(zendia.RouteAPIV1)
 
 	// Health específico da API
 	apiHealth := zendia.NewHealthManager()
@@ -152,7 +159,7 @@ func main() {
 	api.AddHealthEndpoint(apiHealth)
 
 	// Grupo de usuários (já protegido pelo Firebase Auth)
-	users := api.Group("/users")
+	users := api.Group(zendia.RouteUsers)
 
 	// Health específico dos usuários
 	usersHealth := zendia.NewHealthManager()
@@ -171,7 +178,7 @@ func main() {
 		userID := c.GetUserID()     // ← Setado no /login
 
 		if tenantID == "" {
-			return zendia.NewBadRequestError("Faça login primeiro para setar o tenant")
+			return zendia.NewBadRequestError(zendia.MsgLoginRequired)
 		}
 
 		// Cria usando repository com UUID nativo
@@ -187,7 +194,7 @@ func main() {
 			return err
 		}
 
-		c.Created("Criado com sucesso.", map[string]interface{}{
+		c.Created(zendia.MsgCreatedSuccess, map[string]interface{}{
 			"user":        created,
 			"tenant_id":   tenantID,
 			"created_by":  userID,
@@ -197,12 +204,31 @@ func main() {
 	}))
 
 	users.GET("/", zendia.Handle(func(c *zendia.Context[any]) error {
+		// Secure pagination with validation
+		skip := 0
+		take := 10
+		if skipStr := c.Query(zendia.QuerySkip); skipStr != "" {
+			if parsed, err := strconv.Atoi(skipStr); err == nil {
+				skip = parsed
+			}
+		}
+		if takeStr := c.Query(zendia.QueryTake); takeStr != "" {
+			if parsed, err := strconv.Atoi(takeStr); err == nil {
+				take = parsed
+			}
+		}
+		if skip < 0 || take < 0 || take > 1000 {
+			c.BadRequest(zendia.MsgInvalidPagination)
+			return nil
+		}
+
+		// Safe filters - only allow whitelisted fields
 		filters := map[string]interface{}{}
-		if name := c.Query("name"); name != "" {
-			filters["name"] = name
+		if name := c.Query(zendia.QueryName); name != "" && len(name) <= 100 {
+			filters[zendia.FieldName] = name
 		}
 		if tenantID := c.GetTenantID(); tenantID != "" {
-			filters["tenant_id"] = tenantID
+			filters[zendia.FieldTenantID] = tenantID
 		}
 
 		var users []*User
@@ -217,7 +243,7 @@ func main() {
 			return err
 		}
 
-		c.Success("Capturado com sucesso.", map[string]interface{}{
+		c.Success(zendia.MsgRetrievedSuccess, map[string]interface{}{
 			"users":     users,
 			"tenant_id": c.GetTenantID(),
 			"count":     len(users),
@@ -229,7 +255,7 @@ func main() {
 		idStr := c.Param("id")
 		id, err := uuid.Parse(idStr)
 		if err != nil {
-			return zendia.NewBadRequestError("Invalid UUID format")
+			return zendia.NewBadRequestError(zendia.MsgInvalidUUID)
 		}
 
 		var user *User
@@ -243,7 +269,7 @@ func main() {
 			return err
 		}
 
-		c.Success("Capturado com sucesso usando ID.", user)
+		c.Success(zendia.MsgRetrievedByIDSuccess, user)
 		return nil
 	}))
 
@@ -251,7 +277,7 @@ func main() {
 		idStr := c.Param("id")
 		id, err := uuid.Parse(idStr)
 		if err != nil {
-			return zendia.NewBadRequestError("Invalid UUID format")
+			return zendia.NewBadRequestError(zendia.MsgInvalidUUID)
 		}
 
 		var user User
@@ -270,7 +296,7 @@ func main() {
 			return err
 		}
 
-		c.Success("Atualizado com sucesso.", updated)
+		c.Success(zendia.MsgUpdatedSuccess, updated)
 		return nil
 	}))
 
@@ -278,7 +304,7 @@ func main() {
 		idStr := c.Param("id")
 		id, err := uuid.Parse(idStr)
 		if err != nil {
-			return zendia.NewBadRequestError("Invalid UUID format")
+			return zendia.NewBadRequestError(zendia.MsgInvalidUUID)
 		}
 
 		if mongoRepo, ok := userRepo.(*zendia.MongoAuditRepository[*User]); ok {
@@ -296,9 +322,9 @@ func main() {
 	}))
 
 	// Endpoint para verificar dados do usuário autenticado
-	api.GET("/me", zendia.Handle(func(c *zendia.Context[any]) error {
+	api.GET(zendia.RouteMe, zendia.Handle(func(c *zendia.Context[any]) error {
 		user := c.GetAuthUser()
-		c.Success("Dados do usuário", map[string]interface{}{
+		c.Success(zendia.MsgUserData, map[string]interface{}{
 			"firebase_uid": user.FirebaseUID, // ← Do Firebase
 			"email":        user.Email,       // ← Do Firebase
 			"user_id":      user.ID,          // ← Custom claim
@@ -310,13 +336,13 @@ func main() {
 	}))
 
 	// Endpoints públicos (não protegidos)
-	app.GET("/public/metrics", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success("Metricas encontradas.", metrics.GetStats())
+	app.GET(zendia.RouteMetrics, zendia.Handle(func(c *zendia.Context[any]) error {
+		c.Success(zendia.MsgMetricsFound, metrics.GetStats())
 		return nil
 	}))
 
-	app.GET("/public/traces", zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success("Traces encontradas.", tracer.GetSpans())
+	app.GET(zendia.RouteTraces, zendia.Handle(func(c *zendia.Context[any]) error {
+		c.Success(zendia.MsgTracesFound, tracer.GetSpans())
 		return nil
 	}))
 

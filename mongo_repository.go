@@ -2,6 +2,11 @@ package zendia
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"reflect"
+	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
@@ -16,10 +21,149 @@ type MongoRepository[T any, ID comparable] struct {
 	idField    string
 }
 
-// NewMongoRepository cria um novo repository MongoDB
+// allowedFilterKeys defines safe field names for filtering based on existing AuditInfo structure
+var allowedFilterKeys = map[string]bool{
+	"_id":             true,
+	"tenant_id":       true,
+	"name":            true,
+	"email":           true,
+	"status":          true,
+	"active":          true,
+	"created.set_at":  true,
+	"created.by_name": true,
+	"created.by_id":   true,
+	"created.active":  true,
+	"updated.set_at":  true,
+	"updated.by_name": true,
+	"updated.by_id":   true,
+	"deleted.set_at":  true,
+	"deleted.by_name": true,
+	"deleted.by_id":   true,
+	"deleted.active":  true,
+}
+
+// sanitizeFilters prevents NoSQL injection by validating and sanitizing filters
+func sanitizeFilters(filters map[string]interface{}) (bson.M, error) {
+	if len(filters) > 20 { // Prevent DoS with too many filters
+		return nil, fmt.Errorf("too many filters provided")
+	}
+
+	sanitized := bson.M{}
+	for key, value := range filters {
+		// Validate field name
+		if !isValidFieldName(key) {
+			log.Printf("Invalid field name rejected: %s", key)
+			continue // Skip invalid field names
+		}
+
+		// Sanitize value based on type
+		sanitizedValue, err := sanitizeFilterValue(value)
+		if err != nil {
+			log.Printf("Invalid filter value for field %s: %v", key, err)
+			continue // Skip invalid values
+		}
+
+		sanitized[key] = sanitizedValue
+	}
+
+	return sanitized, nil
+}
+
+// isValidFieldName checks if field name is safe for MongoDB queries
+func isValidFieldName(fieldName string) bool {
+	// Check against whitelist
+	if allowedFilterKeys[fieldName] {
+		return true
+	}
+
+	// Allow custom fields that match safe pattern
+	validPattern := regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,50}$`)
+	if !validPattern.MatchString(fieldName) {
+		return false
+	}
+
+	// Reject MongoDB operators and dangerous patterns
+	dangerousPatterns := []string{"$", ".", "javascript", "eval", "function", "where"}
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(strings.ToLower(fieldName), pattern) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// sanitizeFilterValue sanitizes filter values to prevent injection
+func sanitizeFilterValue(value interface{}) (interface{}, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// Limit string length and check for dangerous patterns
+		if len(v) > 1000 {
+			return nil, fmt.Errorf("string value too long")
+		}
+		// Check for MongoDB operators and JavaScript
+		dangerousPatterns := []string{"$", "javascript:", "eval(", "function(", "where"}
+		for _, pattern := range dangerousPatterns {
+			if strings.Contains(strings.ToLower(v), pattern) {
+				return nil, fmt.Errorf("dangerous pattern detected")
+			}
+		}
+		return v, nil
+	case int, int32, int64, float32, float64, bool:
+		return v, nil
+	case primitive.ObjectID:
+		return v, nil
+	case uuid.UUID:
+		return primitive.Binary{Subtype: 4, Data: v[:]}, nil
+	case map[string]interface{}:
+		// Recursively sanitize nested objects (limited depth)
+		return sanitizeNestedObject(v, 1)
+	default:
+		// Use reflection for other types but be restrictive
+		val := reflect.ValueOf(v)
+		if val.Kind() == reflect.Slice || val.Kind() == reflect.Array {
+			if val.Len() > 100 { // Prevent DoS with large arrays
+				return nil, fmt.Errorf("array too large")
+			}
+		}
+		return v, nil
+	}
+}
+
+// sanitizeNestedObject sanitizes nested objects with depth limit
+func sanitizeNestedObject(obj map[string]interface{}, depth int) (map[string]interface{}, error) {
+	if depth > 3 { // Prevent deep nesting attacks
+		return nil, fmt.Errorf("object nesting too deep")
+	}
+
+	sanitized := make(map[string]interface{})
+	for key, value := range obj {
+		if !isValidFieldName(key) {
+			continue
+		}
+		sanitizedValue, err := sanitizeFilterValue(value)
+		if err != nil {
+			continue
+		}
+		sanitized[key] = sanitizedValue
+	}
+
+	return sanitized, nil
+}
+
+// NewMongoRepository creates a new MongoDB repository with security validations
 func NewMongoRepository[T any, ID comparable](collection *mongo.Collection, idField string) *MongoRepository[T, ID] {
 	if idField == "" {
 		idField = "_id"
+	}
+	// Validate idField to prevent injection
+	if !isValidFieldName(idField) {
+		log.Printf("Warning: potentially unsafe idField: %s", idField)
+		idField = "_id" // Fallback to safe default
 	}
 	return &MongoRepository[T, ID]{
 		collection: collection,
@@ -54,14 +198,15 @@ func (mr *MongoRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error)
 
 func (mr *MongoRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
-	filter := bson.M{}
 
-	// Converte filtros para BSON
-	for k, v := range filters {
-		filter[k] = v
+	// Sanitize filters to prevent NoSQL injection
+	filter, err := sanitizeFilters(filters)
+	if err != nil {
+		log.Printf("Filter sanitization failed: %v", err)
+		return entity, NewBadRequestError("Invalid filter parameters")
 	}
 
-	err := mr.collection.FindOne(ctx, filter).Decode(&entity)
+	err = mr.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return entity, NewNotFoundError("No entity found")
@@ -106,11 +251,11 @@ func (mr *MongoRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 }
 
 func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	filter := bson.M{}
-
-	// Converte filtros para BSON
-	for k, v := range filters {
-		filter[k] = v
+	// Sanitize filters to prevent NoSQL injection
+	filter, err := sanitizeFilters(filters)
+	if err != nil {
+		log.Printf("Filter sanitization failed: %v", err)
+		return nil, NewBadRequestError("Invalid filter parameters")
 	}
 
 	cursor, err := mr.collection.Find(ctx, filter)
@@ -128,11 +273,16 @@ func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string
 }
 
 func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
-	filter := bson.M{}
+	// Validate pagination parameters
+	if skip < 0 || take < 0 || take > 1000 {
+		return nil, NewBadRequestError("Invalid pagination parameters")
+	}
 
-	// Converte filtros para BSON
-	for k, v := range filters {
-		filter[k] = v
+	// Sanitize filters to prevent NoSQL injection
+	filter, err := sanitizeFilters(filters)
+	if err != nil {
+		log.Printf("Filter sanitization failed: %v", err)
+		return nil, NewBadRequestError("Invalid filter parameters")
 	}
 
 	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
@@ -251,21 +401,31 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 		"deleted": nil,
 	}
 
-	// Injeta tenant_id automaticamente
+	// Inject tenant_id automatically for security
 	tenantInfo := GetTenantInfo(ctx)
 	if tenantInfo.TenantID != "" {
 		tenantUUID, err := uuid.Parse(tenantInfo.TenantID)
 		if err == nil {
 			filter["tenant_id"] = primitive.Binary{Subtype: 4, Data: tenantUUID[:]}
+		} else {
+			log.Printf("Invalid tenant ID format: %s", tenantInfo.TenantID)
+			return entity, NewBadRequestError("Invalid tenant ID")
 		}
 	}
 
-	// Converte filtros para BSON
-	for k, v := range filters {
+	// Sanitize user filters to prevent NoSQL injection
+	sanitizedFilters, err := sanitizeFilters(filters)
+	if err != nil {
+		log.Printf("Filter sanitization failed: %v", err)
+		return entity, NewBadRequestError("Invalid filter parameters")
+	}
+
+	// Merge sanitized filters
+	for k, v := range sanitizedFilters {
 		filter[k] = v
 	}
 
-	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
+	err = mar.base.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return entity, NewNotFoundError("No entity found")
@@ -381,17 +541,27 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 		"deleted": nil,
 	}
 
-	// Injeta tenant_id automaticamente
+	// Inject tenant_id automatically for security
 	tenantInfo := GetTenantInfo(ctx)
 	if tenantInfo.TenantID != "" {
 		tenantUUID, err := uuid.Parse(tenantInfo.TenantID)
 		if err == nil {
 			filter["tenant_id"] = primitive.Binary{Subtype: 4, Data: tenantUUID[:]}
+		} else {
+			log.Printf("Invalid tenant ID format: %s", tenantInfo.TenantID)
+			return nil, NewBadRequestError("Invalid tenant ID")
 		}
 	}
 
-	// Converte filtros para BSON
-	for k, v := range filters {
+	// Sanitize user filters to prevent NoSQL injection
+	sanitizedFilters, err := sanitizeFilters(filters)
+	if err != nil {
+		log.Printf("Filter sanitization failed: %v", err)
+		return nil, NewBadRequestError("Invalid filter parameters")
+	}
+
+	// Merge sanitized filters
+	for k, v := range sanitizedFilters {
 		filter[k] = v
 	}
 

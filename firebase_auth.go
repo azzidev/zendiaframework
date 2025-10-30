@@ -2,6 +2,9 @@ package zendia
 
 import (
 	"context"
+	"html"
+	"log"
+	"regexp"
 	"strings"
 
 	"firebase.google.com/go/v4/auth"
@@ -35,8 +38,10 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := z.firebaseAuthConfig.FirebaseClient.VerifyIDToken(context.Background(), tokenString)
+		// Use request context instead of Background
+		token, err := z.firebaseAuthConfig.FirebaseClient.VerifyIDToken(c.Request.Context(), tokenString)
 		if err != nil {
+			log.Printf("Firebase token verification failed: %v", err)
 			c.JSON(401, gin.H{
 				"success": false,
 				"message": "Token inválido ou expirado",
@@ -52,22 +57,31 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		c.Set(AuthEmailKey, email)
 		c.Set(AuthTokenKey, token)
 
+		// Sanitize and validate claims before setting headers
 		if tenantID, ok := token.Claims[ClaimTenantID].(string); ok && tenantID != "" {
-			c.Set(AuthTenantIDKey, tenantID)
-			c.Header(HeaderTenantID, tenantID)
+			if sanitizedTenantID := sanitizeHeaderValue(tenantID); sanitizedTenantID != "" {
+				c.Set(AuthTenantIDKey, sanitizedTenantID)
+				c.Header(HeaderTenantID, sanitizedTenantID)
+			}
 		}
 		if userID, ok := token.Claims[ClaimUserUUID].(string); ok && userID != "" {
-			c.Set(AuthUserIDKey, userID)
-			c.Set(UserIDKey, userID)
-			c.Header(HeaderUserID, userID)
+			if sanitizedUserID := sanitizeHeaderValue(userID); sanitizedUserID != "" {
+				c.Set(AuthUserIDKey, sanitizedUserID)
+				c.Set(UserIDKey, sanitizedUserID)
+				c.Header(HeaderUserID, sanitizedUserID)
+			}
 		}
 		if role, ok := token.Claims[ClaimRole].(string); ok && role != "" {
-			c.Set(AuthRoleKey, role)
+			if sanitizedRole := sanitizeHeaderValue(role); sanitizedRole != "" {
+				c.Set(AuthRoleKey, sanitizedRole)
+			}
 		}
 		if name, ok := token.Claims[ClaimUserName].(string); ok && name != "" {
-			c.Set(AuthNameKey, name)
-			c.Set(UserNameKey, name)
-			c.Header(HeaderUserName, name)
+			if sanitizedName := sanitizeHeaderValue(name); sanitizedName != "" {
+				c.Set(AuthNameKey, sanitizedName)
+				c.Set(UserNameKey, sanitizedName)
+				c.Header(HeaderUserName, sanitizedName)
+			}
 		}
 
 		ctx := context.WithValue(c.Request.Context(), ContextFirebaseUID, firebaseUID)
@@ -119,10 +133,25 @@ func (c *Context[T]) HasRole(role string) bool {
 	return userRole == role || userRole == RoleAdmin
 }
 
+// sanitizeHeaderValue prevents XSS by sanitizing header values
+func sanitizeHeaderValue(value string) string {
+	// Remove any control characters and HTML entities
+	value = html.EscapeString(value)
+	// Remove newlines and carriage returns to prevent header injection
+	re := regexp.MustCompile(`[\r\n]`)
+	value = re.ReplaceAllString(value, "")
+	// Limit length to prevent DoS
+	if len(value) > 255 {
+		value = value[:255]
+	}
+	return strings.TrimSpace(value)
+}
+
 func RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userRole, exists := c.Get(AuthRoleKey)
 		if !exists {
+			log.Printf("Role not found for request: %s", c.Request.URL.Path)
 			c.JSON(403, gin.H{
 				"success": false,
 				"message": "Role não encontrada",
@@ -131,7 +160,17 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 			return
 		}
 
-		role := userRole.(string)
+		role, ok := userRole.(string)
+		if !ok {
+			log.Printf("Invalid role type for request: %s", c.Request.URL.Path)
+			c.JSON(403, gin.H{
+				"success": false,
+				"message": "Role inválida",
+			})
+			c.Abort()
+			return
+		}
+
 		if role == RoleAdmin {
 			c.Next()
 			return
@@ -144,6 +183,7 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 			}
 		}
 
+		log.Printf("Insufficient permissions for user role '%s' on path: %s", role, c.Request.URL.Path)
 		c.JSON(403, gin.H{
 			"success": false,
 			"message": "Permissão insuficiente",

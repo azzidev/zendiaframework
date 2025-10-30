@@ -50,7 +50,16 @@ func (z *Zendia) ShowBanner(config BannerConfig) {
 
 // showRegisteredRoutes mostra rotas registradas automaticamente
 func (z *Zendia) showRegisteredRoutes() {
+	if z == nil || z.engine == nil {
+		log.Println("⚠️  Engine not initialized, cannot show routes")
+		return
+	}
+	
 	routes := z.engine.Routes()
+	if len(routes) == 0 {
+		log.Println("📋 No routes registered")
+		return
+	}
 
 	log.Println("🔗 Registered endpoints:")
 

@@ -119,12 +119,12 @@ func main() {
         // 3. Busca usuário no SEU banco
         // userFromDB := myRepo.FindByEmail(req.Email)
         
-        // 4. Seta custom claims (PARA SEMPRE)
+        // 4. Seta custom claims (PARA SEMPRE) - USE AS CONSTANTES!
         claims := map[string]interface{}{
-            "tenant_id": "company-123",  // ← Do seu banco
-            "user_uuid": "user-456",     // ← ID do seu sistema
-            "user_name": "John Doe",     // ← Nome do usuário
-            "role":      "admin",        // ← Role do seu sistema
+            zendia.ClaimTenantID: "company-123",  // ← Do seu banco
+            zendia.ClaimUserUUID: "user-456",     // ← ID do seu sistema
+            zendia.ClaimUserName: "John Doe",     // ← Nome do usuário
+            zendia.ClaimRole:     "admin",        // ← Role do seu sistema
         }
         err = firebaseAuth.SetCustomUserClaims(c.Request.Context(), decodedToken.UID, claims)
         if err != nil {
@@ -219,8 +219,7 @@ type User struct {
     TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"` // Preenchido automaticamente
     Created   zendia.AuditInfo `bson:"created" json:"created"`   // Nova interface de auditoria
     Updated   zendia.AuditInfo `bson:"updated" json:"updated"`   // Nova interface de auditoria
-    DeletedAt *time.Time `bson:"deleted_at" json:"deletedAt,omitempty"`
-    DeletedBy string     `bson:"deleted_by" json:"deletedBy,omitempty"`
+    Deleted   zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"` // Consistente com AuditInfo
 }
 
 // Implementa interface para auditoria automática
@@ -228,6 +227,7 @@ func (u *User) GetID() uuid.UUID              { return u.ID }
 func (u *User) SetID(id uuid.UUID)            { u.ID = id }
 func (u *User) SetCreated(info zendia.AuditInfo) { u.Created = info }
 func (u *User) SetUpdated(info zendia.AuditInfo) { u.Updated = info }
+func (u *User) SetDeleted(info zendia.AuditInfo) { u.Deleted = info }
 func (u *User) SetTenantID(s string)          { u.TenantID = uuid.MustParse(s) }
 
 // Repository com auditoria e histórico automático!
@@ -610,6 +610,281 @@ curl http://localhost:8080/public/metrics
      "role": "admin"
    }
    ```
+
+---
+
+## 📋 Padrões Obrigatórios
+
+### 🗄️ **Estrutura de Collections MongoDB**
+
+O framework **recomenda** padrões específicos para garantir consistência e segurança:
+
+#### **Collections Padrão**
+
+```go
+// Collections padrão (você pode usar qualquer nome)
+const (
+    DefaultUsersCollection   = "users"    // Collection principal (configurável)
+    DefaultHistoryCollection = "history"  // Collection de histórico (configurável)
+)
+```
+
+#### **Estrutura de Entidade Obrigatória**
+
+```go
+type User struct {
+    // ✅ OBRIGATÓRIO - ID como UUID
+    ID        uuid.UUID `bson:"_id" json:"id"`
+    
+    // ✅ OBRIGATÓRIO - Tenant para multi-tenancy
+    TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"`
+    
+    // ✅ OBRIGATÓRIO - Auditoria (escolha uma das opções)
+    // Opção 1: Nova estrutura AuditInfo
+    Created   zendia.AuditInfo `bson:"created" json:"created"`
+    Updated   zendia.AuditInfo `bson:"updated" json:"updated"`
+    Deleted   zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"`
+    
+    // Opção 2: Estrutura legacy (compatibilidade)
+    CreatedAt time.Time `bson:"created_at" json:"created_at"`
+    UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
+    CreatedBy string    `bson:"created_by" json:"created_by"`
+    UpdatedBy string    `bson:"updated_by" json:"updated_by"`
+    DeletedAt *time.Time `bson:"deleted_at" json:"deleted_at,omitempty"`
+    DeletedBy string     `bson:"deleted_by" json:"deleted_by,omitempty"`
+    
+    // Seus campos customizados
+    Name      string    `json:"name" validate:"required,min=2,max=50"`
+    Email     string    `json:"email" validate:"required,email"`
+}
+
+// ✅ OBRIGATÓRIO - Implementar interfaces
+func (u *User) GetID() uuid.UUID         { return u.ID }
+func (u *User) SetID(id uuid.UUID)       { u.ID = id }
+func (u *User) SetTenantID(s string)     { u.TenantID = uuid.MustParse(s) }
+
+// Para nova estrutura AuditInfo
+func (u *User) SetCreated(info zendia.AuditInfo) { u.Created = info }
+func (u *User) SetUpdated(info zendia.AuditInfo) { u.Updated = info }
+func (u *User) SetDeleted(info zendia.AuditInfo) { u.Deleted = info }
+
+// Para estrutura legacy
+func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
+func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
+func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
+func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
+```
+
+#### **Estrutura AuditInfo (Recomendada)**
+
+```go
+type AuditInfo struct {
+    SetAt  time.Time `bson:"set_at" json:"set_at"`     // Quando foi alterado
+    ByName string    `bson:"by_name" json:"by_name"`   // Nome do usuário
+    ByID   uuid.UUID `bson:"by_id" json:"by_id"`       // ID do usuário
+    Active bool      `bson:"active" json:"active"`     // Se está ativo
+}
+```
+
+#### **Collection de Histórico (Automática)**
+
+```go
+type HistoryEntry struct {
+    ID          uuid.UUID              `bson:"_id" json:"id"`
+    EntityID    uuid.UUID              `bson:"entity_id" json:"entityId"`
+    EntityType  string                 `bson:"entity_type" json:"entityType"`
+    TenantID    uuid.UUID              `bson:"tenant_id" json:"tenantId"`
+    TriggerName string                 `bson:"trigger_name" json:"triggerName"`
+    TriggerAt   time.Time              `bson:"trigger_at" json:"triggerAt"`
+    TriggerBy   string                 `bson:"trigger_by" json:"triggerBy"`
+    Changes     map[string]FieldChange `bson:"changes" json:"changes"`
+}
+
+type FieldChange struct {
+    Before interface{} `bson:"before" json:"before"`
+    After  interface{} `bson:"after" json:"after"`
+}
+```
+
+### 🔍 **Campos de Filtro Permitidos**
+
+O framework **só permite** filtros em campos seguros:
+
+```go
+// Whitelist de campos permitidos para filtros
+var allowedFilterKeys = map[string]bool{
+    "_id":              true,
+    "tenant_id":        true,
+    "name":             true,
+    "email":            true,
+    "status":           true,
+    "active":           true,
+    // AuditInfo fields
+    "created.set_at":    true,
+    "created.by_name":   true,
+    "created.by_id":     true,
+    "created.active":    true,
+    "updated.set_at":    true,
+    "updated.by_name":   true,
+    "updated.by_id":     true,
+    "deleted.set_at":    true,
+    "deleted.by_name":   true,
+    "deleted.by_id":     true,
+    "deleted.active":    true,
+    // Legacy fields (compatibilidade)
+    "created_at":        true,
+    "updated_at":        true,
+    "deleted_at":        true,
+    "created_by":        true,
+    "updated_by":        true,
+    "deleted_by":        true,
+}
+```
+
+### ⚠️ **Regras Importantes**
+
+1. **UUID Obrigatório**: Todos os IDs devem ser UUID v4
+2. **TenantID Obrigatório**: Multi-tenancy é forçado
+3. **Auditoria Obrigatória**: Escolha AuditInfo ou legacy
+4. **Collections Configuráveis**: Você escolhe os nomes (users/history são sugestões)
+5. **Filtros Limitados**: Só campos na whitelist
+6. **Paginação Limitada**: Máximo 1000 itens por página
+7. **Validação Obrigatória**: Use tags `validate`
+
+### 🚫 **O que NÃO Funciona**
+
+```go
+// ❌ ID como string ou int
+type User struct {
+    ID string `json:"id"` // ERRO!
+}
+
+// ❌ Sem TenantID
+type User struct {
+    Name string `json:"name"` // ERRO! Falta TenantID
+}
+
+// ❌ Filtros não permitidos
+filters := map[string]interface{}{
+    "$where": "function() { return true }", // ERRO! Bloqueado
+    "password": "123",                      // ERRO! Não está na whitelist
+}
+
+// ❌ Paginação excessiva
+take := 5000 // ERRO! Máximo é 1000
+```
+
+### ✅ **Setup Correto**
+
+```go
+// 1. Conecta MongoDB
+client, _ := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+
+// 2. SEU banco e collections (você escolhe os nomes!)
+db := client.Database("meu_projeto")  // ← SEU nome do banco
+usersCollection := db.Collection("usuarios")     // ← SEU nome da collection
+historyCollection := db.Collection("historico")  // ← SEU nome do histórico
+
+// 3. Repository com histórico automático
+userRepo := zendia.NewHistoryAuditRepository[*User](
+    usersCollection,
+    historyCollection,
+    "User", // Nome da entidade para histórico
+)
+
+// 4. Repository simples (só auditoria)
+// userRepo := zendia.NewMongoAuditRepository[*User](usersCollection)
+```
+
+
+
+---
+
+## 🔒 Segurança
+
+### Correções Aplicadas
+
+#### ✅ **Vulnerabilidades Críticas Corrigidas**
+
+1. **NoSQL Injection Prevention**
+   - Sanitização automática de filtros MongoDB
+   - Validação de nomes de campos com whitelist
+   - Proteção contra operadores MongoDB maliciosos
+
+2. **XSS Prevention** 
+   - Sanitização de valores de headers HTTP
+   - Escape automático de caracteres perigosos
+   - Limitação de tamanho para prevenir DoS
+
+3. **Log Injection Prevention**
+   - Sanitização de valores antes do logging
+   - Remoção de caracteres de controle
+   - Logs de auditoria não manipuláveis
+
+4. **Context Security**
+   - Uso correto do request context
+   - Propagação adequada de cancelamento
+   - Prevenção de vazamento de goroutines
+
+### Configuração Segura
+
+```bash
+# Variáveis de ambiente obrigatórias
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/serviceAccountKey.json"
+export FIREBASE_PROJECT_ID="your-project-id"
+
+# Configurações opcionais de segurança
+export ZENDIA_MAX_FILTERS="20"
+export ZENDIA_MAX_PAGINATION="1000"
+export ZENDIA_LOG_LEVEL="INFO"
+```
+
+### Boas Práticas
+
+```go
+// ✅ Validação de entrada sempre
+type CreateUserRequest struct {
+    Name  string `json:"name" validate:"required,min=2,max=100"`
+    Email string `json:"email" validate:"required,email,max=255"`
+}
+
+// ✅ Filtros seguros com whitelist
+allowedFilters := map[string]bool{
+    "status": true,
+    "name":   true,
+    "email":  true,
+}
+
+// ✅ Paginação com limites
+if skip < 0 || take < 0 || take > 1000 {
+    return NewBadRequestError("Invalid pagination")
+}
+
+// ✅ Contexto de tenant sempre validado
+user := c.GetAuthUser()
+if user.TenantID == "" {
+    c.Unauthorized("Invalid tenant context")
+    return nil
+}
+
+// ✅ Use as constantes do framework
+claims := map[string]interface{}{
+    zendia.ClaimTenantID: userFromDB.TenantID,  // ✅
+    zendia.ClaimUserUUID: userFromDB.ID,        // ✅
+    // ❌ NÃO: "tenant_id": userFromDB.TenantID
+}
+```
+
+### Checklist de Segurança
+
+- [ ] Variáveis de ambiente configuradas
+- [ ] Firebase credentials seguras
+- [ ] Validação em todos os endpoints
+- [ ] Rate limiting configurado
+- [ ] HTTPS enforçado em produção
+- [ ] Logs de auditoria habilitados
+- [ ] Headers de segurança configurados
+- [ ] Tenant isolation testado
 
 ---
 

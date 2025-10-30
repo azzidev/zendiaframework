@@ -3,6 +3,7 @@ package zendia
 import (
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -46,10 +47,24 @@ func (v *Validator) RegisterValidation(tag string, fn validator.Func) error {
 	return v.validate.RegisterValidation(tag, fn)
 }
 
-// formatError formata erros de validação em português
+// sanitizeLogValue prevents log injection by sanitizing values
+func sanitizeLogValue(value string) string {
+	// Remove control characters and newlines to prevent log injection
+	re := regexp.MustCompile(`[\r\n\t\x00-\x1f\x7f-\x9f]`)
+	value = re.ReplaceAllString(value, "")
+	// Limit length to prevent DoS
+	if len(value) > 100 {
+		value = value[:100] + "..."
+	}
+	return value
+}
+
+// formatError formats validation errors in Portuguese with log injection protection
 func (v *Validator) formatError(err validator.FieldError) string {
-	field := err.Field()
-	tag := err.Tag()
+	// Sanitize field name and parameters to prevent log injection
+	field := sanitizeLogValue(err.Field())
+	tag := sanitizeLogValue(err.Tag())
+	param := sanitizeLogValue(err.Param())
 	
 	switch tag {
 	case "required":
@@ -57,21 +72,21 @@ func (v *Validator) formatError(err validator.FieldError) string {
 	case "email":
 		return fmt.Sprintf("%s deve ser um email válido", field)
 	case "min":
-		return fmt.Sprintf("%s deve ter pelo menos %s caracteres", field, err.Param())
+		return fmt.Sprintf("%s deve ter pelo menos %s caracteres", field, param)
 	case "max":
-		return fmt.Sprintf("%s deve ter no máximo %s caracteres", field, err.Param())
+		return fmt.Sprintf("%s deve ter no máximo %s caracteres", field, param)
 	case "len":
-		return fmt.Sprintf("%s deve ter exatamente %s caracteres", field, err.Param())
+		return fmt.Sprintf("%s deve ter exatamente %s caracteres", field, param)
 	case "gt":
-		return fmt.Sprintf("%s deve ser maior que %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser maior que %s", field, param)
 	case "gte":
-		return fmt.Sprintf("%s deve ser maior ou igual a %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser maior ou igual a %s", field, param)
 	case "lt":
-		return fmt.Sprintf("%s deve ser menor que %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser menor que %s", field, param)
 	case "lte":
-		return fmt.Sprintf("%s deve ser menor ou igual a %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser menor ou igual a %s", field, param)
 	case "oneof":
-		return fmt.Sprintf("%s deve ser um dos valores: %s", field, err.Param())
+		return fmt.Sprintf("%s deve ser um dos valores: %s", field, param)
 	case "uuid":
 		return fmt.Sprintf("%s deve ser um UUID válido", field)
 	case "numeric":
