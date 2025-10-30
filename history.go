@@ -60,7 +60,7 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 		TenantID:    tenantUUID,
 		TriggerName: triggerName,
 		TriggerAt:   tenantInfo.ActionAt,
-		TriggerBy:   tenantInfo.UserID,
+		TriggerBy:   tenantInfo.UserName,
 		Changes:     changes,
 	}
 
