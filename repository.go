@@ -24,12 +24,14 @@ type AuditInfo struct {
 	SetAt  time.Time `bson:"set_at" json:"set_at"`
 	ByName string    `bson:"by_name" json:"by_name"`
 	ByID   uuid.UUID `bson:"by_id" json:"by_id"`
+	Active bool      `bson:"active" json:"active"`
 }
 
 // AuditableEntity interface para entidades com auditoria
 type AuditableEntity interface {
 	SetCreated(AuditInfo)
 	SetUpdated(AuditInfo)
+	SetDeleted(AuditInfo)
 	SetTenantID(string)
 }
 
@@ -67,6 +69,7 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
 			ByID:   userID,
+			Active: true,
 		}
 		newEntity.SetCreated(auditInfo)
 		newEntity.SetUpdated(auditInfo)
@@ -120,47 +123,54 @@ func (ar *AuditRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 }
 
 func (ar *AuditRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
-	// Injeta tenant_id automaticamente nos filtros
+	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
-	if tenantInfo.TenantID != "" && filters != nil {
+	if filters == nil {
+		filters = make(map[string]interface{})
+	}
+	if tenantInfo.TenantID != "" {
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
+	filters["created.active"] = true
 	return ar.base.GetFirst(ctx, filters)
 }
 
 func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	// Injeta tenant_id automaticamente nos filtros
+	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
+	if filters == nil {
+		filters = make(map[string]interface{})
+	}
 	if tenantInfo.TenantID != "" {
-		if filters == nil {
-			filters = make(map[string]interface{})
-		}
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
+	filters["created.active"] = true
 	return ar.base.GetAll(ctx, filters)
 }
 
 func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
-	// Injeta tenant_id automaticamente nos filtros
+	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
+	if filters == nil {
+		filters = make(map[string]interface{})
+	}
 	if tenantInfo.TenantID != "" {
-		if filters == nil {
-			filters = make(map[string]interface{})
-		}
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
+	filters["created.active"] = true
 	return ar.base.GetAllSkipTake(ctx, filters, skip, take)
 }
 
 func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	// Injeta tenant_id automaticamente nos filtros
+	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
+	if filters == nil {
+		filters = make(map[string]interface{})
+	}
 	if tenantInfo.TenantID != "" {
-		if filters == nil {
-			filters = make(map[string]interface{})
-		}
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
+	filters["created.active"] = true
 	return ar.base.List(ctx, filters)
 }
 

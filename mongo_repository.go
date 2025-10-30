@@ -2,7 +2,6 @@ package zendia
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/bson"
@@ -222,11 +221,8 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 	var entity T
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
 	filter := bson.M{
-		"_id": binaryUUID,
-		"$or": []bson.M{
-			{"deleted_at": bson.M{"$exists": false}},
-			{"deleted_at": nil},
-		},
+		"_id":     binaryUUID,
+		"deleted": nil,
 	}
 
 	// Injeta tenant_id automaticamente
@@ -252,10 +248,7 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
 	filter := bson.M{
-		"$or": []bson.M{
-			{"deleted_at": bson.M{"$exists": false}},
-			{"deleted_at": nil},
-		},
+		"deleted": nil,
 	}
 
 	// Injeta tenant_id automaticamente
@@ -330,31 +323,44 @@ func (mar *MongoAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, en
 
 func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 	tenantInfo := GetTenantInfo(ctx)
-	now := time.Now()
 
-	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
-	filter := bson.M{
-		"_id": binaryUUID,
-		"$or": []bson.M{
-			{"deleted_at": bson.M{"$exists": false}},
-			{"deleted_at": nil},
-		},
+	// Busca a entidade primeiro
+	entity, err := mar.GetByID(ctx, id)
+	if err != nil {
+		return err
 	}
 
-	// Injeta tenant_id automaticamente no filtro de delete
-	if tenantInfo.TenantID != "" {
-		tenantUUID, err := uuid.Parse(tenantInfo.TenantID)
-		if err == nil {
-			filter["tenant_id"] = primitive.Binary{Subtype: 4, Data: tenantUUID[:]}
+	// Seta deleted info se a entidade suporta
+	if auditEntity, ok := any(entity).(AuditableEntity); ok {
+		var userID uuid.UUID
+		if tenantInfo.UserID != "" {
+			userID = uuid.MustParse(tenantInfo.UserID)
 		}
+		deleteInfo := AuditInfo{
+			SetAt:  tenantInfo.ActionAt,
+			ByName: tenantInfo.UserName,
+			ByID:   userID,
+			Active: false,
+		}
+		auditEntity.SetDeleted(deleteInfo)
+
+		// Atualiza a entidade
+		_, err = mar.Update(ctx, id, entity)
+		return err
+	}
+
+	// Fallback para entidades antigas
+	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
+	filter := bson.M{"_id": binaryUUID}
+	if tenantInfo.TenantID != "" {
+		tenantUUID, _ := uuid.Parse(tenantInfo.TenantID)
+		filter["tenant_id"] = primitive.Binary{Subtype: 4, Data: tenantUUID[:]}
 	}
 
 	update := bson.M{
 		"$set": bson.M{
-			"deleted_at": now,
+			"deleted_at": tenantInfo.ActionAt,
 			"deleted_by": tenantInfo.UserID,
-			"updated_at": now,
-			"updated_by": tenantInfo.UserID,
 		},
 	}
 
@@ -372,10 +378,7 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
 	filter := bson.M{
-		"$or": []bson.M{
-			{"deleted_at": bson.M{"$exists": false}},
-			{"deleted_at": nil},
-		},
+		"deleted": nil,
 	}
 
 	// Injeta tenant_id automaticamente
@@ -408,10 +411,7 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 
 func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
 	filter := bson.M{
-		"$or": []bson.M{
-			{"deleted_at": bson.M{"$exists": false}},
-			{"deleted_at": nil},
-		},
+		"deleted": nil,
 	}
 
 	// Injeta tenant_id automaticamente
@@ -483,7 +483,7 @@ func (mar *MongoAuditRepository[T]) GetAllIncludingDeleted(ctx context.Context, 
 // GetDeleted busca apenas registros deletados
 func (mar *MongoAuditRepository[T]) GetDeleted(ctx context.Context, filters map[string]interface{}) ([]T, error) {
 	filter := bson.M{
-		"deleted_at": bson.M{"$exists": true}, // Apenas registros deletados
+		"deleted": bson.M{"$ne": nil}, // Apenas registros deletados
 	}
 
 	// Injeta tenant_id automaticamente
@@ -542,15 +542,14 @@ func (mar *MongoAuditRepository[T]) HardDelete(ctx context.Context, id uuid.UUID
 
 // Restore restaura um registro soft deleted
 func (mar *MongoAuditRepository[T]) Restore(ctx context.Context, id uuid.UUID) error {
-	tenantInfo := GetTenantInfo(ctx)
-
 	binaryUUID := primitive.Binary{Subtype: 4, Data: id[:]}
 	filter := bson.M{
-		"_id":        binaryUUID,
-		"deleted_at": bson.M{"$exists": true}, // Só restaura se estiver deletado
+		"_id":     binaryUUID,
+		"deleted": bson.M{"$ne": nil}, // Só restaura se estiver deletado
 	}
 
 	// Injeta tenant_id automaticamente no filtro de restore
+	tenantInfo := GetTenantInfo(ctx)
 	if tenantInfo.TenantID != "" {
 		tenantUUID, err := uuid.Parse(tenantInfo.TenantID)
 		if err == nil {
@@ -560,12 +559,7 @@ func (mar *MongoAuditRepository[T]) Restore(ctx context.Context, id uuid.UUID) e
 
 	update := bson.M{
 		"$unset": bson.M{
-			"deleted_at": "",
-			"deleted_by": "",
-		},
-		"$set": bson.M{
-			"updated_at": tenantInfo.ActionAt,
-			"updated_by": tenantInfo.UserID,
+			"deleted": "",
 		},
 	}
 
