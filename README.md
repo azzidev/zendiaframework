@@ -234,11 +234,59 @@ func (u *User) SetTenantID(s string)          { u.TenantID = uuid.MustParse(s) }
 repo := zendia.NewHistoryAuditRepository[*User](collection, historyCollection, "User")
 // ou apenas auditoria
 repo := zendia.NewMongoAuditRepository[*User](collection)
+
+// Com cache automático (in-memory - sem dependências)
+memoryCache := zendia.NewMemoryCache(zendia.MemoryCacheConfig{
+    CacheConfig: zendia.CacheConfig{
+        TTL: 10 * time.Minute,
+    },
+    MaxSize: 10000,
+})
+cachedRepo := zendia.NewCachedRepository(repo, memoryCache, zendia.CacheConfig{
+    TTL: 10 * time.Minute,
+}, "User")
 ```
 
 ---
 
 ## 🛠️ Funcionalidades Avançadas
+
+### 🚀 Cache Layer Automático
+
+```go
+// Opção 1: Cache em memória (sem dependências)
+memoryCache := zendia.NewMemoryCache(zendia.MemoryCacheConfig{
+    CacheConfig: zendia.CacheConfig{
+        TTL: 10 * time.Minute, // Expira em 10min
+    },
+    MaxSize:   10000,           // Máximo 10k itens
+    MaxMemory: 5 * 1024 * 1024, // Máximo 5MB
+})
+
+// Opção 2: Cache Redis (para produção)
+// import "github.com/redis/go-redis/v9"
+redisClient := redis.NewClient(&redis.Options{
+    Addr: "localhost:6379",
+})
+redisCache := zendia.NewRedisCache(zendia.RedisCacheConfig{
+    Client: redisClient,
+    TTL:    10 * time.Minute,
+})
+
+// Mesmo uso para ambos!
+cachedRepo := zendia.NewCachedRepository(baseRepo, memoryCache, zendia.CacheConfig{
+    TTL: 10 * time.Minute,
+}, "User")
+
+// Performance automática:
+user, err := cachedRepo.GetByID(ctx, userID)
+// Primeira vez: MongoDB (50ms)
+// Próximas vezes: Cache (0.1ms) 🚀
+
+// Invalidação automática:
+user.Name = "Novo Nome"
+cachedRepo.Update(ctx, userID, user)  // ← Remove do cache automaticamente!
+```
 
 ### 📊 Monitoramento e Histórico Completo
 

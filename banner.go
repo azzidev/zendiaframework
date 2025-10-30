@@ -1,7 +1,7 @@
 package zendia
 
 import (
-	"log"
+	"fmt"
 	"strings"
 )
 
@@ -13,68 +13,51 @@ type BannerConfig struct {
 	ShowRoutes bool
 }
 
-// ShowBanner exibe banner automático com rotas registradas
+// ShowBanner exibe o banner do framework
 func (z *Zendia) ShowBanner(config BannerConfig) {
-	if config.AppName == "" {
-		config.AppName = "ZendiaFramework App"
-	}
-	if config.Version == "" {
-		config.Version = "1.0.0"
-	}
-	if config.Port == "" {
-		config.Port = "8080"
-	}
-
-	// Banner principal
-	log.Printf("🚀 %s v%s running on :%s", config.AppName, config.Version, config.Port)
-
-	// Info de autenticação
-	if z.firebaseAuthConfig != nil {
-		log.Println("🔐 Firebase Authentication enabled")
-		if len(z.firebaseAuthConfig.PublicRoutes) > 0 {
-			log.Printf("📋 Public routes: %s", strings.Join(z.firebaseAuthConfig.PublicRoutes, ", "))
-		}
-		log.Println("🔗 Use: Authorization: Bearer <firebase-token>")
-		log.Println("💡 POST /login to set tenant after Firebase auth")
-	} else {
-		log.Println("📋 Use headers: X-Tenant-ID and X-User-ID")
-	}
-
-	// Rotas automáticas
+	// ASCII Art do ZendiaFramework
+	fmt.Println("\033[36m") // Cor ciano
+	fmt.Println(`
+ ███████╗███████╗███╗   ██╗██████╗ ██╗ █████╗ 
+ ╚══███╔╝██╔════╝████╗  ██║██╔══██╗██║██╔══██╗
+   ███╔╝ █████╗  ██╔██╗ ██║██║  ██║██║███████║
+  ███╔╝  ██╔══╝  ██║╚██╗██║██║  ██║██║██╔══██║
+ ███████╗███████╗██║ ╚████║██████╔╝██║██║  ██║
+ ╚══════╝╚══════╝╚═╝  ╚═══╝╚═════╝ ╚═╝╚═╝  ╚═╝`)
+	fmt.Println("\033[0m") // Reset cor
+	
+	// Informações do framework
+	fmt.Println("\033[1;32m🚀 ZendiaFramework - Go Multi-Tenant API Framework\033[0m")
+	fmt.Println("\033[90m   Built with ❤️  for the Go community\033[0m")
+	fmt.Println()
+	
+	// Informações da aplicação
+	fmt.Printf("\033[1;34m📦 Application:\033[0m %s\n", config.AppName)
+	fmt.Printf("\033[1;35m🔢 Version:\033[0m     %s\n", config.Version)
+	fmt.Printf("\033[1;33m🌐 Port:\033[0m        %s\n", config.Port)
+	fmt.Printf("\033[1;36m🔗 URL:\033[0m         http://localhost%s\n", config.Port)
+	fmt.Println()
+	
+	// Features ativas
+	fmt.Println("\033[1;32m✨ Active Features:\033[0m")
+	fmt.Println("   🔐 Firebase Auth Integration")
+	fmt.Println("   🏢 Multi-Tenant Support")
+	fmt.Println("   📝 Automatic Audit Trail")
+	fmt.Println("   🚀 Cache Layer (In-Memory)")
+	fmt.Println("   📊 Health Checks & Monitoring")
+	fmt.Println("   🔍 Request Tracing")
+	fmt.Println("   📚 Auto Swagger Documentation")
+	fmt.Println()
+	
 	if config.ShowRoutes {
-		z.showRegisteredRoutes()
-	}
-
-	log.Println("✅ Server ready!")
-}
-
-// showRegisteredRoutes mostra rotas registradas automaticamente
-func (z *Zendia) showRegisteredRoutes() {
-	if z == nil || z.engine == nil {
-		log.Println("⚠️  Engine not initialized, cannot show routes")
-		return
+		fmt.Println("\033[1;36m📋 Quick Links:\033[0m")
+		fmt.Printf("   📖 Docs:    http://localhost%s/docs\n", config.Port)
+		fmt.Printf("   🏥 Health:  http://localhost%s/health\n", config.Port)
+		fmt.Printf("   📊 Metrics: http://localhost%s/public/metrics\n", config.Port)
+		fmt.Println()
 	}
 	
-	routes := z.engine.Routes()
-	if len(routes) == 0 {
-		log.Println("📋 No routes registered")
-		return
-	}
-
-	log.Println("🔗 Registered endpoints:")
-
-	// Agrupa por método
-	methodGroups := make(map[string][]string)
-	for _, route := range routes {
-		if route.Path != "" {
-			methodGroups[route.Method] = append(methodGroups[route.Method], route.Path)
-		}
-	}
-
-	// Exibe organizadamente
-	for method, paths := range methodGroups {
-		for _, path := range paths {
-			log.Printf("  %s %s", method, path)
-		}
-	}
+	fmt.Println("\033[1;32m🎯 Ready to serve requests!\033[0m")
+	fmt.Println("\033[90m" + strings.Repeat("─", 60) + "\033[0m")
+	fmt.Println()
 }

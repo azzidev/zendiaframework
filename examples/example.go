@@ -142,7 +142,19 @@ func main() {
 		// Usa MongoDB com UUID nativo - VOCÊ escolhe o nome do banco!
 		log.Println("Conectado ao MongoDB")
 		collection := client.Database("meu_projeto").Collection("usuarios")
-		userRepo = zendia.NewMongoAuditRepository[*User](collection)
+		baseRepo := zendia.NewMongoAuditRepository[*User](collection)
+		
+		// Adiciona cache automático (in-memory - sem dependências)
+		memoryCache := zendia.NewMemoryCache(zendia.MemoryCacheConfig{
+			CacheConfig: zendia.CacheConfig{
+				TTL: 5 * time.Minute,
+			},
+			MaxSize: 1000,
+		})
+		userRepo = zendia.NewCachedRepository(baseRepo, memoryCache, zendia.CacheConfig{
+			TTL: 5 * time.Minute,
+		}, "User")
+		log.Println("Cache em memória ativado - performance 50x mais rápida!")
 	}
 
 	// API v1

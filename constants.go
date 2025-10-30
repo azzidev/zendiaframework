@@ -1,5 +1,7 @@
 package zendia
 
+import "time"
+
 // Firebase Custom Claims - Use essas constantes nos seus custom claims
 const (
 	// Custom Claims do Firebase (para SetCustomUserClaims)
@@ -90,6 +92,15 @@ const (
 	DefaultHost            = "localhost:8080"
 	DefaultVersion         = "1.0"
 	DefaultBasePath        = "/api/v1"
+)
+
+// Cache Constants
+const (
+	DefaultCacheTTL           = 10 * time.Minute
+	DefaultCacheMaxSize       = 10000
+	DefaultMemoryCacheMaxMem  = 5 * 1024 * 1024   // 5MB (in-memory)
+	DefaultRedisCacheMaxMem   = 100 * 1024 * 1024 // 100MB (Redis)
+	DefaultCacheKeyPrefix     = "zendia:"
 )
 
 // Query Parameters
