@@ -289,7 +289,7 @@ claims := map[string]interface{}{
     zendia.ClaimTenantID: userFromDB.TenantID,  // ✅ Constante
     zendia.ClaimUserUUID: userFromDB.ID,        // ✅ Constante  
     zendia.ClaimUserName: userFromDB.Name,      // ✅ Constante
-    zendia.ClaimRole:     zendia.RoleAdmin,     // ✅ Constante
+    zendia.ClaimRole:     userFromDB.Role,      // ✅ Do seu banco
 }
 // ❌ NÃO use strings: "tenant_id", "user_uuid", etc.
 
@@ -326,27 +326,19 @@ app.POST("/auth/login", zendia.Handle(func(c *zendia.Context[any]) error {
 // Todas as rotas protegidas - framework extrai custom claims automaticamente
 api := app.Group("/api/v1")
 
-// Roles específicas (custom claims)
-adminRoutes := api.Group("/admin", zendia.RequireRole("admin"))
-managerRoutes := api.Group("/management", zendia.RequireRole("admin", "manager"))
-
 // Dados completos em qualquer handler
 api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
     user := c.GetAuthUser()
-    
-    if c.HasRole("admin") {
-        // Lógica para admin
-    }
-    
+        
     c.Success("Perfil do usuário", map[string]interface{}{
         "firebase_uid": user.FirebaseUID, // ← Do Firebase
         "email":        user.Email,       // ← Do Firebase
         "user_id":      user.ID,          // ← Custom claim
         "tenant":       user.TenantID,    // ← Custom claim
-        "role":         user.Role,        // ← Custom claim
+        "role":         user.Role,        // ← Custom claim (use conforme necessário)
     })
     return nil
-}))
+})
 ```
 
 ### 🔐 Segurança Adicional
@@ -415,12 +407,14 @@ api.POST("/orders", zendia.Handle(func(c *zendia.Context[Order]) error {
     // Auditoria automática com tenant da sessão
 }))
 
-// Sistema bancário - só gerentes
-managerRoutes.PUT("/accounts/:id", zendia.Handle(func(c *zendia.Context[Account]) error {
+// Sistema bancário - implemente suas próprias permissões
+api.PUT("/accounts/:id", zendia.Handle(func(c *zendia.Context[Account]) error {
     user := c.GetAuthUser()
     tenantID := c.GetTenantID() // ← Da sessão
     
-    log.Printf("Manager %s (tenant: %s) updating account", user.Email, tenantID)
+    // Exemplo: if !userHasPermission(user.ID, "account:update") { return Forbidden }
+    
+    log.Printf("User %s (tenant: %s) updating account", user.Email, tenantID)
     // Todas as alterações auditadas automaticamente
 }))
 
@@ -434,12 +428,14 @@ api.GET("/analytics", zendia.Handle(func(c *zendia.Context[any]) error {
     return nil
 }))
 
-// Admin dashboard - só admins
-adminRoutes.GET("/dashboard", zendia.Handle(func(c *zendia.Context[any]) error {
-    // Role setada no login, não no Firebase
-    c.Success("Admin data", map[string]string{"message": "Admin dashboard"})
+// Dashboard - implemente suas próprias permissões
+api.GET("/dashboard", zendia.Handle(func(c *zendia.Context[any]) error {
+    user := c.GetAuthUser()
+    // Exemplo: if !userHasPermission(user.ID, "dashboard:view") { return Forbidden }
+    
+    c.Success("Dashboard data", map[string]string{"message": "Dashboard"})
     return nil
-}))
+})
 ```
 
 ---
@@ -509,7 +505,7 @@ GET /api/v1/users/health    # Repository operations reais
 - ✅ **Email/Password** provider support
 - ✅ **Custom Claims** extraídos automaticamente
 - ✅ **Multi-tenant** com custom claims
-- ✅ **Role-based Access** com `RequireRole()`
+
 - ✅ **Public Routes** configuráveis
 - ✅ **Context Integration** com `c.GetAuthUser()`
 - ✅ **Auditoria Automática** com tenant/user_id

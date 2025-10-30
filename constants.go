@@ -51,13 +51,7 @@ const (
 	ContextUserID      = "user_id"
 )
 
-// Default Roles - Use these constants for common roles
-const (
-	RoleAdmin   = "admin"
-	RoleManager = "manager"
-	RoleMember  = "member"
-	RoleViewer  = "viewer"
-)
+
 
 // Security Constants
 const (

@@ -128,10 +128,7 @@ func (c *Context[T]) GetAuthUser() *AuthUser {
 	}
 }
 
-func (c *Context[T]) HasRole(role string) bool {
-	userRole := c.GetString(AuthRoleKey)
-	return userRole == role || userRole == RoleAdmin
-}
+
 
 // sanitizeHeaderValue prevents XSS by sanitizing header values
 func sanitizeHeaderValue(value string) string {
@@ -147,50 +144,7 @@ func sanitizeHeaderValue(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func RequireRole(roles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userRole, exists := c.Get(AuthRoleKey)
-		if !exists {
-			log.Printf("Role not found for request: %s", c.Request.URL.Path)
-			c.JSON(403, gin.H{
-				"success": false,
-				"message": "Role não encontrada",
-			})
-			c.Abort()
-			return
-		}
 
-		role, ok := userRole.(string)
-		if !ok {
-			log.Printf("Invalid role type for request: %s", c.Request.URL.Path)
-			c.JSON(403, gin.H{
-				"success": false,
-				"message": "Role inválida",
-			})
-			c.Abort()
-			return
-		}
-
-		if role == RoleAdmin {
-			c.Next()
-			return
-		}
-
-		for _, requiredRole := range roles {
-			if role == requiredRole {
-				c.Next()
-				return
-			}
-		}
-
-		log.Printf("Insufficient permissions for user role '%s' on path: %s", role, c.Request.URL.Path)
-		c.JSON(403, gin.H{
-			"success": false,
-			"message": "Permissão insuficiente",
-		})
-		c.Abort()
-	}
-}
 
 type AuthUser struct {
 	ID          string `json:"id"`
