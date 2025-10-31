@@ -24,7 +24,6 @@ type AuditInfo struct {
 	SetAt  time.Time `bson:"set_at" json:"set_at"`
 	ByName string    `bson:"by_name" json:"by_name"`
 	ByID   uuid.UUID `bson:"by_id" json:"by_id"`
-	Active bool      `bson:"active" json:"active"`
 }
 
 // AuditableEntity interface para entidades com auditoria
@@ -33,6 +32,7 @@ type AuditableEntity interface {
 	SetUpdated(AuditInfo)
 	SetDeleted(AuditInfo)
 	SetTenantID(string)
+	SetActive(bool)
 }
 
 // LegacyAuditableEntity interface para compatibilidade com entidades antigas
@@ -69,10 +69,10 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
 			ByID:   userID,
-			Active: true,
 		}
 		newEntity.SetCreated(auditInfo)
 		newEntity.SetUpdated(auditInfo)
+		newEntity.SetActive(true)
 		newEntity.SetTenantID(tenantInfo.TenantID)
 	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
 		// Fallback para interface antiga
@@ -131,7 +131,7 @@ func (ar *AuditRepository[T, ID]) GetFirst(ctx context.Context, filters map[stri
 	if tenantInfo.TenantID != "" {
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
-	filters["created.active"] = true
+	filters["active"] = true
 	return ar.base.GetFirst(ctx, filters)
 }
 
@@ -144,7 +144,7 @@ func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string
 	if tenantInfo.TenantID != "" {
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
-	filters["created.active"] = true
+	filters["active"] = true
 	return ar.base.GetAll(ctx, filters)
 }
 
@@ -157,7 +157,7 @@ func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 	if tenantInfo.TenantID != "" {
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
-	filters["created.active"] = true
+	filters["active"] = true
 	return ar.base.GetAllSkipTake(ctx, filters, skip, take)
 }
 
@@ -170,7 +170,7 @@ func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]i
 	if tenantInfo.TenantID != "" {
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
-	filters["created.active"] = true
+	filters["active"] = true
 	return ar.base.List(ctx, filters)
 }
 

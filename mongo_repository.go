@@ -500,9 +500,9 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 			SetAt:  tenantInfo.ActionAt,
 			ByName: tenantInfo.UserName,
 			ByID:   userID,
-			Active: false,
 		}
 		auditEntity.SetDeleted(deleteInfo)
+		auditEntity.SetActive(false)
 
 		// Atualiza a entidade
 		_, err = mar.Update(ctx, id, entity)
