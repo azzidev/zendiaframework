@@ -11,15 +11,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// FirebaseAuthConfig configuração para autenticação Firebase
 type FirebaseAuthConfig struct {
 	FirebaseClient *auth.Client
 	PublicRoutes   []string
 }
 
+// SetupFirebaseAuth configura autenticação Firebase no framework
 func (z *Zendia) SetupFirebaseAuth(config FirebaseAuthConfig) {
 	z.firebaseAuthConfig = &config
 	z.Use(z.firebaseAuthMiddleware())
 }
+
+// firebaseAuthMiddleware middleware para validação de tokens Firebase
 func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if z.isFirebasePublicRoute(c.Request.URL.Path) {
@@ -29,23 +33,17 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.JSON(401, gin.H{
-				"success": false,
-				"message": "Token de autenticação obrigatório",
-			})
+			c.Error(NewUnauthorizedError("Token de autenticação obrigatório"))
 			c.Abort()
 			return
 		}
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		// Use request context instead of Background
+
 		token, err := z.firebaseAuthConfig.FirebaseClient.VerifyIDToken(c.Request.Context(), tokenString)
 		if err != nil {
 			log.Printf("Firebase token verification failed: %v", err)
-			c.JSON(401, gin.H{
-				"success": false,
-				"message": "Token inválido ou expirado",
-			})
+			c.Error(NewUnauthorizedError("Token inválido ou expirado"))
 			c.Abort()
 			return
 		}
@@ -57,7 +55,6 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		c.Set(AuthEmailKey, email)
 		c.Set(AuthTokenKey, token)
 
-		// Sanitize and validate claims before setting headers
 		if tenantID, ok := token.Claims[ClaimTenantID].(string); ok && tenantID != "" {
 			if sanitizedTenantID := sanitizeHeaderValue(tenantID); sanitizedTenantID != "" {
 				c.Set(AuthTenantIDKey, sanitizedTenantID)
@@ -71,11 +68,7 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 				c.Header(HeaderUserID, sanitizedUserID)
 			}
 		}
-		if role, ok := token.Claims[ClaimRole].(string); ok && role != "" {
-			if sanitizedRole := sanitizeHeaderValue(role); sanitizedRole != "" {
-				c.Set(AuthRoleKey, sanitizedRole)
-			}
-		}
+
 		if name, ok := token.Claims[ClaimUserName].(string); ok && name != "" {
 			if sanitizedName := sanitizeHeaderValue(name); sanitizedName != "" {
 				c.Set(AuthNameKey, sanitizedName)
@@ -101,6 +94,7 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// isFirebasePublicRoute verifica se a rota é pública (não precisa de auth)
 func (z *Zendia) isFirebasePublicRoute(path string) bool {
 	if z.firebaseAuthConfig == nil {
 		return true
@@ -117,6 +111,7 @@ func (z *Zendia) isFirebasePublicRoute(path string) bool {
 	return false
 }
 
+// GetAuthUser retorna informações do usuário autenticado
 func (c *Context[T]) GetAuthUser() *AuthUser {
 	return &AuthUser{
 		ID:          c.GetString(AuthUserIDKey),
@@ -124,33 +119,26 @@ func (c *Context[T]) GetAuthUser() *AuthUser {
 		Email:       c.GetString(AuthEmailKey),
 		Name:        c.GetString(AuthNameKey),
 		TenantID:    c.GetString(AuthTenantIDKey),
-		Role:        c.GetString(AuthRoleKey),
 	}
 }
 
-
-
-// sanitizeHeaderValue prevents XSS by sanitizing header values
+// sanitizeHeaderValue sanitiza valores de header para prevenir XSS
 func sanitizeHeaderValue(value string) string {
-	// Remove any control characters and HTML entities
 	value = html.EscapeString(value)
-	// Remove newlines and carriage returns to prevent header injection
 	re := regexp.MustCompile(`[\r\n]`)
 	value = re.ReplaceAllString(value, "")
-	// Limit length to prevent DoS
+
 	if len(value) > 255 {
 		value = value[:255]
 	}
 	return strings.TrimSpace(value)
 }
 
-
-
+// AuthUser representa um usuário autenticado
 type AuthUser struct {
 	ID          string `json:"id"`
 	FirebaseUID string `json:"firebase_uid"`
 	Email       string `json:"email"`
 	Name        string `json:"name"`
 	TenantID    string `json:"tenant_id"`
-	Role        string `json:"role"`
 }

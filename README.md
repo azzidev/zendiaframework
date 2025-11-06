@@ -45,7 +45,7 @@
 
 - 📚 **Swagger Automático** - Documentação gerada automaticamente
 - 🏥 **Health Checks Reais** - Monitoramento com dados reais do sistema
-- 📈 **Observabilidade** - Tracing distribuído e métricas detalhadas
+- 📈 **Observabilidade** - Métricas detalhadas e health checks
 - 🧪 **Testável** - Arquitetura que facilita testes unitários
 
 ---
@@ -288,17 +288,21 @@ user.Name = "Novo Nome"
 cachedRepo.Update(ctx, userID, user)  // ← Remove do cache automaticamente!
 ```
 
-### 📊 Monitoramento e Histórico Completo
+### 📊 Monitoramento e Observabilidade Completa
 
 ```go
 app := zendia.New()
 
-// Métricas automáticas
+// Opção 1: Monitoring simples (só memória)
 metrics := app.AddMonitoring()
 
-// Tracing distribuído
-tracer := zendia.NewSimpleTracer()
-app.Use(zendia.Tracing(tracer))
+// Opção 2: Monitoring com persistência MongoDB (RECOMENDADO)
+client, _ := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://localhost:27017"))
+metricsCollection := client.Database("myapp").Collection("metrics")
+metrics := app.AddMonitoringWithPersistence(metricsCollection)
+// ✅ Salva métricas a cada 1 minuto automaticamente
+// ✅ Histórico completo com TTL de 30 dias
+// ✅ Endpoints de consulta automáticos
 
 // Health checks granulares
 globalHealth := zendia.NewHealthManager()
@@ -319,6 +323,59 @@ project, err := projectRepo.Update(ctx, id, updatedProject)
 // Consultar histórico
 history, err := projectRepo.GetHistory(ctx, projectID)
 // Retorna: [{"Name": {"before": "Old", "after": "New"}}]
+```
+
+#### 📈 Endpoints de Métricas Disponíveis
+
+```bash
+# Métricas em tempo real
+GET /public/metrics
+
+# Histórico detalhado (últimas 24h)
+GET /public/metrics/history
+
+# Histórico por período
+GET /public/metrics/history?from=2024-01-01T00:00:00Z&to=2024-01-02T00:00:00Z
+
+# Estatísticas agregadas (por hora/dia/mês)
+GET /public/metrics/stats?interval=day&from=2024-01-01T00:00:00Z
+
+# Limpeza de dados antigos
+DELETE /public/metrics/cleanup?days=30
+```
+
+#### 📉 Exemplo de Resposta com Persistência
+
+```json
+{
+  "success": true,
+  "message": "Métricas encontradas",
+  "data": {
+    "uptime": "2h30m15s",
+    "active_requests": 5,
+    "total_requests": 1250,
+    "total_errors": 23,
+    "error_rate": 1.84,
+    "persistence": {
+      "enabled": true,
+      "interval": "1m0s",
+      "last_persist": "2024-01-01T10:30:00Z"
+    },
+    "memory": {
+      "endpoints_tracked": 45,
+      "max_endpoints": 100,
+      "estimated_mb": 0.008
+    },
+    "endpoints": {
+      "GET /api/v1/users": {
+        "requests": 450,
+        "errors": 12,
+        "avg_time_ms": 125.5,
+        "error_rate": 2.67
+      }
+    }
+  }
+}
 ```
 
 ### 🔥 Firebase Authentication
@@ -387,6 +444,33 @@ api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
     })
     return nil
 })
+```
+
+### 🔧 Configuração Avançada de Monitoring
+
+```go
+// Configuração customizada de métricas
+config := zendia.MetricsConfig{
+    MaxEndpoints:      200,                // Máx endpoints rastreados
+    CleanupInterval:   10 * time.Minute,   // Limpeza a cada 10min
+    MaxMemoryMB:      20,                  // Máx 20MB de memória
+    PersistInterval:   30 * time.Second,   // Salva a cada 30s
+    EnablePersistence: true,               // Habilita persistência
+}
+
+metrics := zendia.NewMetricsWithConfig(config)
+
+// Configura persistidor customizado
+if mongoAvailable {
+    persister := zendia.NewMongoMetricsPersister(metricsCollection)
+    metrics.SetPersister(persister)
+}
+
+app.Use(zendia.Monitoring(metrics))
+
+// Consultar histórico programaticamente
+history, err := metrics.GetMetricsHistory("tenant-123", 
+    time.Now().Add(-24*time.Hour), time.Now())
 ```
 
 ### 🔐 Segurança Adicional
@@ -497,13 +581,6 @@ api.GET("/dashboard", zendia.Handle(func(c *zendia.Context[any]) error {
 - 🔄 **Active Requests** em tempo real
 - 📈 **Throughput** e estatísticas detalhadas
 
-### Tracing Distribuído
-
-- 🔍 **Trace ID** automático em todas as requisições
-- 📝 **Spans** com contexto completo
-- 🔗 **Propagação** entre serviços
-- 📊 **Visualização** de performance
-
 ### Health Checks Reais (Sem Mocks!)
 
 ```bash
@@ -602,7 +679,7 @@ Veja [`examples/complete_example.go`](examples/complete_example.go) para um exem
 - ✅ MongoDB + fallback in-memory
 - ✅ Autenticação e autorização
 - ✅ Health checks granulares
-- ✅ Métricas e tracing
+- ✅ Métricas e monitoring
 - ✅ Documentação Swagger
 - ✅ Multi-tenant automático
 
@@ -623,8 +700,19 @@ curl -X POST -H "Authorization: Bearer <firebase-token>" \
      -d '{"name":"João","email":"joao@test.com","age":30}' \
      http://localhost:8080/api/v1/users
 
-# 4. Rota pública (sem token)
+# 4. Métricas em tempo real (sem token)
 curl http://localhost:8080/public/metrics
+
+# 5. Histórico de métricas (se MongoDB disponível)
+curl http://localhost:8080/public/metrics/history
+
+# 6. Estatísticas agregadas por hora
+curl "http://localhost:8080/public/metrics/stats?interval=hour"
+
+# 7. Health checks granulares
+curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/api/v1/users/health
 ```
 
 ### 🔧 Setup Firebase
@@ -683,19 +771,10 @@ type User struct {
     // ✅ OBRIGATÓRIO - Tenant para multi-tenancy
     TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"`
     
-    // ✅ OBRIGATÓRIO - Auditoria (escolha uma das opções)
-    // Opção 1: Nova estrutura AuditInfo
+    // ✅ OBRIGATÓRIO - Auditoria com AuditInfo
     Created   zendia.AuditInfo `bson:"created" json:"created"`
     Updated   zendia.AuditInfo `bson:"updated" json:"updated"`
     Deleted   zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"`
-    
-    // Opção 2: Estrutura legacy (compatibilidade)
-    CreatedAt time.Time `bson:"created_at" json:"created_at"`
-    UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
-    CreatedBy string    `bson:"created_by" json:"created_by"`
-    UpdatedBy string    `bson:"updated_by" json:"updated_by"`
-    DeletedAt *time.Time `bson:"deleted_at" json:"deleted_at,omitempty"`
-    DeletedBy string     `bson:"deleted_by" json:"deleted_by,omitempty"`
     
     // Seus campos customizados
     Name      string    `json:"name" validate:"required,min=2,max=50"`
@@ -707,16 +786,11 @@ func (u *User) GetID() uuid.UUID         { return u.ID }
 func (u *User) SetID(id uuid.UUID)       { u.ID = id }
 func (u *User) SetTenantID(s string)     { u.TenantID = uuid.MustParse(s) }
 
-// Para nova estrutura AuditInfo
+// Para estrutura AuditInfo
 func (u *User) SetCreated(info zendia.AuditInfo) { u.Created = info }
 func (u *User) SetUpdated(info zendia.AuditInfo) { u.Updated = info }
 func (u *User) SetDeleted(info zendia.AuditInfo) { u.Deleted = info }
-
-// Para estrutura legacy
-func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
-func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
-func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
-func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
+func (u *User) SetActive(active bool)            { /* implementar conforme necessário */ }
 ```
 
 #### **Estrutura AuditInfo (Recomendada)**
@@ -775,13 +849,6 @@ var allowedFilterKeys = map[string]bool{
     "deleted.by_name":   true,
     "deleted.by_id":     true,
     "deleted.active":    true,
-    // Legacy fields (compatibilidade)
-    "created_at":        true,
-    "updated_at":        true,
-    "deleted_at":        true,
-    "created_by":        true,
-    "updated_by":        true,
-    "deleted_by":        true,
 }
 ```
 
@@ -836,8 +903,7 @@ userRepo := zendia.NewHistoryAuditRepository[*User](
     "User", // Nome da entidade para histórico
 )
 
-// 4. Repository simples (só auditoria)
-// userRepo := zendia.NewMongoAuditRepository[*User](usersCollection)
+
 ```
 
 

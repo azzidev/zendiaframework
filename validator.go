@@ -33,11 +33,21 @@ func NewValidator() *Validator {
 // Validate valida uma estrutura
 func (v *Validator) Validate(s interface{}) error {
 	if err := v.validate.Struct(s); err != nil {
-		var errors []string
-		for _, err := range err.(validator.ValidationErrors) {
-			errors = append(errors, v.formatError(err))
+		validationErrors := err.(validator.ValidationErrors)
+		if len(validationErrors) == 1 {
+			// Otimização: se há apenas um erro, não precisa de slice
+			return NewValidationError("Validation failed", fmt.Errorf(v.formatError(validationErrors[0])))
 		}
-		return NewValidationError("Validation failed", fmt.Errorf(strings.Join(errors, "; ")))
+		
+		// Para múltiplos erros, usa strings.Builder para melhor performance
+		var builder strings.Builder
+		for i, err := range validationErrors {
+			if i > 0 {
+				builder.WriteString("; ")
+			}
+			builder.WriteString(v.formatError(err))
+		}
+		return NewValidationError("Validation failed", fmt.Errorf(builder.String()))
 	}
 	return nil
 }
@@ -47,16 +57,31 @@ func (v *Validator) RegisterValidation(tag string, fn validator.Func) error {
 	return v.validate.RegisterValidation(tag, fn)
 }
 
+// Regex compilada uma vez para melhor performance
+var controlCharsRegex = regexp.MustCompile(`[\r\n\t\x00-\x1f\x7f-\x9f]`)
+
 // sanitizeLogValue prevents log injection by sanitizing values
 func sanitizeLogValue(value string) string {
-	// Remove control characters and newlines to prevent log injection
-	re := regexp.MustCompile(`[\r\n\t\x00-\x1f\x7f-\x9f]`)
-	value = re.ReplaceAllString(value, "")
-	// Limit length to prevent DoS
+	// Limit length first to prevent DoS
 	if len(value) > 100 {
 		value = value[:100] + "..."
 	}
-	return value
+	
+	// Quick check: se não há caracteres de controle, retorna direto
+	hasControlChars := false
+	for _, r := range value {
+		if r < 32 || (r >= 127 && r <= 159) {
+			hasControlChars = true
+			break
+		}
+	}
+	
+	if !hasControlChars {
+		return value
+	}
+	
+	// Remove control characters apenas se necessário
+	return controlCharsRegex.ReplaceAllString(value, "")
 }
 
 // formatError formats validation errors in Portuguese with log injection protection
@@ -100,7 +125,3 @@ func (v *Validator) formatError(err validator.FieldError) string {
 	}
 }
 
-// ValidateStruct é um helper para validar estruturas
-func ValidateStruct[T any](v *Validator, data T) error {
-	return v.Validate(data)
-}

@@ -17,24 +17,24 @@ import (
 
 // User entidade completa com auditoria e tenant usando UUID nativo
 type User struct {
-	ID        uuid.UUID `bson:"_id" json:"id"`
-	Name      string    `bson:"name" json:"name" validate:"required,min=2,max=50"`
-	Email     string    `bson:"email" json:"email" validate:"required,email"`
-	Age       int       `bson:"age" json:"age" validate:"gte=0,lte=120"`
-	TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"`
-	CreatedAt time.Time `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time `bson:"updated_at" json:"updated_at"`
-	CreatedBy string    `bson:"created_by" json:"created_by"`
-	UpdatedBy string    `bson:"updated_by" json:"updated_by"`
+	ID       uuid.UUID        `bson:"_id" json:"id"`
+	Name     string           `bson:"name" json:"name" validate:"required,min=2,max=50"`
+	Email    string           `bson:"email" json:"email" validate:"required,email"`
+	Age      int              `bson:"age" json:"age" validate:"gte=0,lte=120"`
+	TenantID uuid.UUID        `bson:"tenant_id" json:"tenant_id"`
+	Created  zendia.AuditInfo `bson:"created" json:"created"`
+	Updated  zendia.AuditInfo `bson:"updated" json:"updated"`
+	Deleted  zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"`
+	Active   bool             `bson:"active" json:"active"`
 }
 
-// Implementa MongoAuditableEntity com UUID nativo
-func (u *User) GetID() uuid.UUID         { return u.ID }
-func (u *User) SetID(id uuid.UUID)       { u.ID = id }
-func (u *User) SetCreatedAt(t time.Time) { u.CreatedAt = t }
-func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
-func (u *User) SetCreatedBy(s string)    { u.CreatedBy = s }
-func (u *User) SetUpdatedBy(s string)    { u.UpdatedBy = s }
+// Implementa MongoAuditableEntity e AuditableEntity
+func (u *User) GetID() uuid.UUID                        { return u.ID }
+func (u *User) SetID(id uuid.UUID)                      { u.ID = id }
+func (u *User) SetCreated(info zendia.AuditInfo)        { u.Created = info }
+func (u *User) SetUpdated(info zendia.AuditInfo)        { u.Updated = info }
+func (u *User) SetDeleted(info zendia.AuditInfo)        { u.Deleted = info }
+func (u *User) SetActive(active bool)                   { u.Active = active }
 func (u *User) SetTenantID(s string) {
 	if s != "" {
 		u.TenantID = uuid.MustParse(s)
@@ -98,7 +98,7 @@ func main() {
 		//     zendia.ClaimTenantID: userFromDB.TenantID,
 		//     zendia.ClaimUserUUID: userFromDB.ID,
 		//     zendia.ClaimUserName: userFromDB.Name,
-		//     zendia.ClaimRole:     userFromDB.Role,
+
 		// }
 		// err = firebaseAuth.SetCustomUserClaims(ctx, decodedToken.UID, claims)
 
@@ -109,10 +109,25 @@ func main() {
 		return nil
 	}))
 
+	// Conecta MongoDB (opcional) - PRIMEIRO!
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(zendia.DefaultMongoURI))
+	
 	// Monitoramento e Tracing
-	metrics := app.AddMonitoring()
-	tracer := zendia.NewSimpleTracer()
-	app.Use(zendia.Tracing(tracer))
+	var metrics *zendia.Metrics
+	if err == nil {
+		// Com MongoDB: monitoring + persistência automática
+		log.Println("Conectado ao MongoDB")
+		metricsCollection := client.Database("meu_projeto").Collection("metrics")
+		metrics = app.AddMonitoringWithPersistence(metricsCollection)
+		log.Println("📊 Monitoring com persistência ativado - histórico salvo no MongoDB")
+	} else {
+		// Sem MongoDB: só monitoring em memória
+		log.Println("MongoDB não disponível, usando monitoring em memória")
+		metrics = app.AddMonitoring()
+		log.Println("📊 Monitoring em memória ativado - sem persistência")
+	}
+	
+
 
 	// Health Manager Global com checks reais
 	globalHealth := zendia.NewHealthManager()
@@ -128,19 +143,17 @@ func main() {
 		BasePath:    zendia.DefaultBasePath,
 	})
 
-	// Conecta MongoDB (opcional)
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(zendia.DefaultMongoURI))
+	// Setup dos repositories
 	var userRepo interface{}
 	if err != nil {
 		// Fallback para repository em memória
-		log.Println("MongoDB não disponível, usando repository em memória")
+		log.Println("Usando repository em memória")
 		baseRepo := zendia.NewMemoryRepository[*User, uuid.UUID](func() uuid.UUID {
 			return uuid.New()
 		})
 		userRepo = zendia.NewAuditRepository[*User, uuid.UUID](baseRepo)
 	} else {
 		// Usa MongoDB com UUID nativo - VOCÊ escolhe o nome do banco!
-		log.Println("Conectado ao MongoDB")
 		collection := client.Database("meu_projeto").Collection("usuarios")
 		baseRepo := zendia.NewMongoAuditRepository[*User](collection)
 		
@@ -163,7 +176,7 @@ func main() {
 	// Health específico da API
 	apiHealth := zendia.NewHealthManager()
 	apiHealth.AddCheck(zendia.NewHTTPHealthCheck("external_api", "https://httpbin.org/status/200", 5*time.Second))
-	if client != nil {
+	if err == nil {
 		apiHealth.AddCheck(zendia.NewDatabaseHealthCheck("mongodb", func(ctx context.Context) error {
 			return client.Ping(ctx, nil)
 		}))
@@ -341,7 +354,7 @@ func main() {
 			"email":        user.Email,       // ← Do Firebase
 			"user_id":      user.ID,          // ← Custom claim
 			"tenant_id":    user.TenantID,    // ← Custom claim
-			"role":         user.Role,        // ← Custom claim
+
 			"tenant_info":  c.GetTenantInfo(),
 		})
 		return nil
@@ -353,10 +366,15 @@ func main() {
 		return nil
 	}))
 
-	app.GET(zendia.RouteTraces, zendia.Handle(func(c *zendia.Context[any]) error {
-		c.Success(zendia.MsgTracesFound, tracer.GetSpans())
-		return nil
-	}))
+
+	
+	// Endpoints de métricas avançadas (se MongoDB disponível)
+	if err == nil {
+		log.Println("📈 Endpoints de histórico disponíveis:")
+		log.Println("   GET /public/metrics/history - Histórico detalhado")
+		log.Println("   GET /public/metrics/stats - Estatísticas agregadas")
+		log.Println("   DELETE /public/metrics/cleanup - Limpeza de dados antigos")
+	}
 
 	// Banner automático do framework
 	app.ShowBanner(zendia.BannerConfig{
@@ -366,10 +384,15 @@ func main() {
 		ShowRoutes: true,
 	})
 
-	log.Println("\n🔥 Teste o fluxo com custom claims:")
+	log.Println("\n🔥 Teste o fluxo completo:")
 	log.Println("1. POST /auth/login com email/senha → Seta custom claims")
 	log.Println("2. GET /api/v1/me com token → Framework extrai custom claims")
 	log.Println("3. POST /api/v1/users com token → Tenant/user_id automáticos")
+	log.Println("4. GET /public/metrics → Métricas em tempo real")
+	if err == nil {
+		log.Println("5. GET /public/metrics/history → Histórico persistido")
+		log.Println("6. GET /public/metrics/stats?interval=hour → Estatísticas agregadas")
+	}
 
 	app.Run(":8080")
 }

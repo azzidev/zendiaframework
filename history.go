@@ -9,16 +9,21 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+// TriggerInfo informações sobre o trigger que causou a mudança
+type TriggerInfo struct {
+	Name string    `bson:"name" json:"name"` // Nome da operação (Create, Update, Delete)
+	At   time.Time `bson:"at" json:"at"`     // Quando aconteceu
+	By   string    `bson:"by" json:"by"`     // Quem executou
+}
+
 // HistoryEntry representa uma entrada no histórico de mudanças
 type HistoryEntry struct {
-	ID          uuid.UUID              `bson:"_id" json:"id"`
-	EntityID    uuid.UUID              `bson:"entity_id" json:"entityId"`
-	EntityType  string                 `bson:"entity_type" json:"entityType"`
-	TenantID    uuid.UUID              `bson:"tenant_id" json:"tenantId"`
-	TriggerName string                 `bson:"trigger_name" json:"triggerName"`
-	TriggerAt   time.Time              `bson:"trigger_at" json:"triggerAt"`
-	TriggerBy   string                 `bson:"trigger_by" json:"triggerBy"`
-	Changes     map[string]FieldChange `bson:"changes" json:"changes"`
+	ID         uuid.UUID              `bson:"_id" json:"id"`
+	EntityID   uuid.UUID              `bson:"entity_id" json:"entityId"`
+	EntityType string                 `bson:"entity_type" json:"entityType"`
+	TenantID   uuid.UUID              `bson:"tenant_id" json:"tenantId"`
+	Trigger    TriggerInfo            `bson:"trigger" json:"trigger"`
+	Changes    map[string]FieldChange `bson:"changes" json:"changes"`
 }
 
 // FieldChange representa a mudança de um campo específico
@@ -45,7 +50,7 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 
 	changes := hm.detectChanges(before, after)
 	if len(changes) == 0 {
-		return nil // Nenhuma mudança detectada
+		return nil
 	}
 
 	var tenantUUID uuid.UUID
@@ -54,14 +59,16 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 	}
 
 	entry := HistoryEntry{
-		ID:          uuid.New(),
-		EntityID:    entityID,
-		EntityType:  entityType,
-		TenantID:    tenantUUID,
-		TriggerName: triggerName,
-		TriggerAt:   tenantInfo.ActionAt,
-		TriggerBy:   tenantInfo.UserName,
-		Changes:     changes,
+		ID:         uuid.New(),
+		EntityID:   entityID,
+		EntityType: entityType,
+		TenantID:   tenantUUID,
+		Trigger: TriggerInfo{
+			Name: triggerName,
+			At:   tenantInfo.ActionAt,
+			By:   tenantInfo.UserName,
+		},
+		Changes: changes,
 	}
 
 	_, err := hm.collection.InsertOne(ctx, entry)
@@ -132,7 +139,7 @@ func (hm *HistoryManager) GetHistory(ctx context.Context, entityID uuid.UUID) ([
 	filter := map[string]interface{}{
 		"entity_id": entityID,
 	}
-	
+
 	if tenantInfo.TenantID != "" {
 		filter["tenant_id"] = uuid.MustParse(tenantInfo.TenantID)
 	}
@@ -183,19 +190,16 @@ func (har *HistoryAuditRepository[T]) GetFirst(ctx context.Context, filters map[
 }
 
 func (har *HistoryAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
-	// Busca o estado anterior
 	before, err := har.base.GetByID(ctx, id)
 	if err != nil {
 		return entity, err
 	}
 
-	// Atualiza
 	updated, err := har.base.Update(ctx, id, entity)
 	if err != nil {
 		return entity, err
 	}
 
-	// Registra histórico
 	har.history.RecordChanges(ctx, id, har.entityType, "Update", before, updated)
 
 	return updated, nil
@@ -217,7 +221,6 @@ func (har *HistoryAuditRepository[T]) List(ctx context.Context, filters map[stri
 	return har.base.List(ctx, filters)
 }
 
-// GetHistory busca histórico da entidade
 func (har *HistoryAuditRepository[T]) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
 	return har.history.GetHistory(ctx, entityID)
 }

@@ -11,6 +11,7 @@ import (
 // Context é um wrapper do gin.Context com funcionalidades adicionais
 type Context[T any] struct {
 	*gin.Context
+	zendia *Zendia // Referência para a instância principal
 }
 
 // BindJSON faz o bind e validação de dados JSON
@@ -19,10 +20,11 @@ func (c *Context[T]) BindJSON(obj *T) error {
 		return NewValidationError("Invalid JSON data", err)
 	}
 
-	// Valida usando o validator customizado
-	validator := NewValidator()
-	if err := validator.Validate(obj); err != nil {
-		return err
+	// Valida usando o validator compartilhado
+	if c.zendia != nil {
+		if err := c.zendia.GetValidator().Validate(obj); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -34,10 +36,11 @@ func (c *Context[T]) BindQuery(obj *T) error {
 		return NewValidationError("Invalid query parameters", err)
 	}
 
-	// Valida usando o validator customizado
-	validator := NewValidator()
-	if err := validator.Validate(obj); err != nil {
-		return err
+	// Valida usando o validator compartilhado
+	if c.zendia != nil {
+		if err := c.zendia.GetValidator().Validate(obj); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -49,10 +52,11 @@ func (c *Context[T]) BindURI(obj *T) error {
 		return NewValidationError("Invalid URI parameters", err)
 	}
 
-	// Valida usando o validator customizado
-	validator := NewValidator()
-	if err := validator.Validate(obj); err != nil {
-		return err
+	// Valida usando o validator compartilhado
+	if c.zendia != nil {
+		if err := c.zendia.GetValidator().Validate(obj); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -196,10 +200,7 @@ func (c *Context[T]) SetUserID(userID string) {
 	c.Request = c.Request.WithContext(ctx)
 }
 
-// SetRole seta a role do usuário no contexto
-func (c *Context[T]) SetRole(role string) {
-	c.Set(AuthRoleKey, role)
-}
+
 
 // SetUserName seta o nome do usuário no contexto
 func (c *Context[T]) SetUserName(userName string) {

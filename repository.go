@@ -35,15 +35,6 @@ type AuditableEntity interface {
 	SetActive(bool)
 }
 
-// LegacyAuditableEntity interface para compatibilidade com entidades antigas
-type LegacyAuditableEntity interface {
-	SetCreatedAt(time.Time)
-	SetUpdatedAt(time.Time)
-	SetCreatedBy(string)
-	SetUpdatedBy(string)
-	SetTenantID(string)
-}
-
 // AuditRepository wrapper que adiciona funcionalidades de auditoria
 type AuditRepository[T any, ID comparable] struct {
 	base Repository[T, ID]
@@ -59,8 +50,7 @@ func NewAuditRepository[T any, ID comparable](base Repository[T, ID]) *AuditRepo
 func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
 	
-	// Tenta usar nova interface primeiro
-	if newEntity, ok := any(entity).(AuditableEntity); ok {
+	if auditableEntity, ok := any(entity).(AuditableEntity); ok {
 		var userID uuid.UUID
 		if tenantInfo.UserID != "" {
 			userID = uuid.MustParse(tenantInfo.UserID)
@@ -70,17 +60,10 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 			ByName: tenantInfo.UserName,
 			ByID:   userID,
 		}
-		newEntity.SetCreated(auditInfo)
-		newEntity.SetUpdated(auditInfo)
-		newEntity.SetActive(true)
-		newEntity.SetTenantID(tenantInfo.TenantID)
-	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
-		// Fallback para interface antiga
-		legacyEntity.SetCreatedAt(tenantInfo.ActionAt)
-		legacyEntity.SetUpdatedAt(tenantInfo.ActionAt)
-		legacyEntity.SetCreatedBy(tenantInfo.UserID)
-		legacyEntity.SetUpdatedBy(tenantInfo.UserID)
-		legacyEntity.SetTenantID(tenantInfo.TenantID)
+		auditableEntity.SetCreated(auditInfo)
+		auditableEntity.SetUpdated(auditInfo)
+		auditableEntity.SetActive(true)
+		auditableEntity.SetTenantID(tenantInfo.TenantID)
 	}
 	
 	return ar.base.Create(ctx, entity)
@@ -95,8 +78,7 @@ func (ar *AuditRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error)
 func (ar *AuditRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (T, error) {
 	tenantInfo := GetTenantInfo(ctx)
 	
-	// Tenta usar nova interface primeiro
-	if newEntity, ok := any(entity).(AuditableEntity); ok {
+	if auditableEntity, ok := any(entity).(AuditableEntity); ok {
 		var userID uuid.UUID
 		if tenantInfo.UserID != "" {
 			userID = uuid.MustParse(tenantInfo.UserID)
@@ -106,13 +88,8 @@ func (ar *AuditRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (
 			ByName: tenantInfo.UserName,
 			ByID:   userID,
 		}
-		newEntity.SetUpdated(auditInfo)
-		newEntity.SetTenantID(tenantInfo.TenantID)
-	} else if legacyEntity, ok := any(entity).(LegacyAuditableEntity); ok {
-		// Fallback para interface antiga
-		legacyEntity.SetUpdatedAt(tenantInfo.ActionAt)
-		legacyEntity.SetUpdatedBy(tenantInfo.UserID)
-		legacyEntity.SetTenantID(tenantInfo.TenantID)
+		auditableEntity.SetUpdated(auditInfo)
+		auditableEntity.SetTenantID(tenantInfo.TenantID)
 	}
 	
 	return ar.base.Update(ctx, id, entity)
