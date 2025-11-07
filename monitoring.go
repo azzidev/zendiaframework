@@ -201,8 +201,18 @@ func (m *Metrics) startCleanupRoutine() {
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		m.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("Metrics cleanup panic: %v\n", r)
+					}
+				}()
+				m.cleanup()
+			}()
+		}
 	}
 }
 
@@ -211,8 +221,18 @@ func (m *Metrics) startPersistenceRoutine() {
 	ticker := time.NewTicker(m.config.PersistInterval)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		m.persistMetrics()
+	for {
+		select {
+		case <-ticker.C:
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Printf("Metrics persistence panic: %v\n", r)
+					}
+				}()
+				m.persistMetrics()
+			}()
+		}
 	}
 }
 
@@ -226,26 +246,42 @@ func (m *Metrics) persistMetrics() {
 		return
 	}
 	
-	stats := m.GetStats()
-	snapshot := MetricsSnapshot{
-		ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
-		Timestamp:      time.Now(),
-		Uptime:         stats["uptime"].(string),
-		ActiveRequests: stats["active_requests"].(int64),
-		TotalRequests:  stats["total_requests"].(int64),
-		TotalErrors:    stats["total_errors"].(int64),
-		ErrorRate:      stats["error_rate"].(float64),
-		Endpoints:      stats["endpoints"].(map[string]interface{}),
-		MemoryUsage:    stats["memory"].(map[string]interface{}),
-	}
+	// Timeout para evitar travamento
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("persist panic: %v", r)
+			}
+		}()
+		
+		stats := m.GetStats()
+		snapshot := MetricsSnapshot{
+			ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
+			Timestamp:      time.Now(),
+			Uptime:         stats["uptime"].(string),
+			ActiveRequests: stats["active_requests"].(int64),
+			TotalRequests:  stats["total_requests"].(int64),
+			TotalErrors:    stats["total_errors"].(int64),
+			ErrorRate:      stats["error_rate"].(float64),
+			Endpoints:      stats["endpoints"].(map[string]interface{}),
+			MemoryUsage:    stats["memory"].(map[string]interface{}),
+		}
+		
+		done <- persister.Save(snapshot)
+	}()
 	
-	if err := persister.Save(snapshot); err != nil {
-		// Log error but don't crash
-		fmt.Printf("Failed to persist metrics: %v\n", err)
-	} else {
-		m.mu.Lock()
-		m.lastPersist = time.Now()
-		m.mu.Unlock()
+	select {
+	case err := <-done:
+		if err != nil {
+			fmt.Printf("Failed to persist metrics: %v\n", err)
+		} else {
+			m.mu.Lock()
+			m.lastPersist = time.Now()
+			m.mu.Unlock()
+		}
+	case <-time.After(10 * time.Second):
+		fmt.Printf("Metrics persistence timeout after 10s\n")
 	}
 }
 
