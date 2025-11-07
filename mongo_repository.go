@@ -42,25 +42,23 @@ var allowedFilterKeys = map[string]bool{
 	"deleted.active":  true,
 }
 
-// sanitizeFilters prevents NoSQL injection by validating and sanitizing filters
-func sanitizeFilters(filters map[string]interface{}) (bson.M, error) {
-	if len(filters) > 20 { // Prevent DoS with too many filters
-		return nil, fmt.Errorf("too many filters provided")
+// sanitizeUserInput sanitizes ONLY user input from HTTP requests
+func sanitizeUserInput(input map[string]interface{}) (map[string]interface{}, error) {
+	if len(input) > 20 {
+		return nil, fmt.Errorf("too many input fields")
 	}
 
-	sanitized := bson.M{}
-	for key, value := range filters {
-		// Validate field name
+	sanitized := make(map[string]interface{})
+	for key, value := range input {
 		if !isValidFieldName(key) {
-			log.Printf("Invalid field name rejected: %s", key)
-			continue // Skip invalid field names
+			log.Printf("Invalid user input field rejected: %s", key)
+			continue
 		}
 
-		// Sanitize value based on type
 		sanitizedValue, err := sanitizeFilterValue(value)
 		if err != nil {
-			log.Printf("Invalid filter value for field %s: %v", key, err)
-			continue // Skip invalid values
+			log.Printf("Invalid input value for field %s: %v", key, err)
+			continue
 		}
 
 		sanitized[key] = sanitizedValue
@@ -199,11 +197,9 @@ func (mr *MongoRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error)
 func (mr *MongoRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
 
-	// Sanitize filters to prevent NoSQL injection
-	filter, err := sanitizeFilters(filters)
-	if err != nil {
-		log.Printf("Filter sanitization failed: %v", err)
-		return entity, NewBadRequestError("Invalid filter parameters")
+	filter := bson.M{}
+	for k, v := range filters {
+		filter[k] = v
 	}
 
 	err = mr.collection.FindOne(ctx, filter).Decode(&entity)
@@ -251,11 +247,9 @@ func (mr *MongoRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 }
 
 func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	// Sanitize filters to prevent NoSQL injection
-	filter, err := sanitizeFilters(filters)
-	if err != nil {
-		log.Printf("Filter sanitization failed: %v", err)
-		return nil, NewBadRequestError("Invalid filter parameters")
+	filter := bson.M{}
+	for k, v := range filters {
+		filter[k] = v
 	}
 
 	cursor, err := mr.collection.Find(ctx, filter)
@@ -278,11 +272,9 @@ func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 		return nil, NewBadRequestError("Invalid pagination parameters")
 	}
 
-	// Sanitize filters to prevent NoSQL injection
-	filter, err := sanitizeFilters(filters)
-	if err != nil {
-		log.Printf("Filter sanitization failed: %v", err)
-		return nil, NewBadRequestError("Invalid filter parameters")
+	filter := bson.M{}
+	for k, v := range filters {
+		filter[k] = v
 	}
 
 	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
@@ -404,15 +396,8 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 		}
 	}
 
-	// Sanitize user filters to prevent NoSQL injection
-	sanitizedFilters, err := sanitizeFilters(filters)
-	if err != nil {
-		log.Printf("Filter sanitization failed: %v", err)
-		return entity, NewBadRequestError("Invalid filter parameters")
-	}
-
-	// Merge sanitized filters
-	for k, v := range sanitizedFilters {
+	// Convert user filters directly - no sanitization
+	for k, v := range filters {
 		filter[k] = v
 	}
 
@@ -520,15 +505,8 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 		}
 	}
 
-	// Sanitize user filters to prevent NoSQL injection
-	sanitizedFilters, err := sanitizeFilters(filters)
-	if err != nil {
-		log.Printf("Filter sanitization failed: %v", err)
-		return nil, NewBadRequestError("Invalid filter parameters")
-	}
-
-	// Merge sanitized filters
-	for k, v := range sanitizedFilters {
+	// Convert user filters directly - no sanitization
+	for k, v := range filters {
 		filter[k] = v
 	}
 

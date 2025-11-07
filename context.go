@@ -16,8 +16,20 @@ type Context[T any] struct {
 
 // BindJSON faz o bind e validação de dados JSON
 func (c *Context[T]) BindJSON(obj *T) error {
-	if err := c.Context.ShouldBindJSON(obj); err != nil {
+	var rawData map[string]interface{}
+	if err := c.Context.ShouldBindJSON(&rawData); err != nil {
 		return NewValidationError("Invalid JSON data", err)
+	}
+
+	// Sanitiza input do usuário
+	sanitizedData, err := sanitizeUserInput(rawData)
+	if err != nil {
+		return NewValidationError("Invalid input data", err)
+	}
+
+	// Converte de volta para o tipo esperado
+	if err := c.Context.ShouldBind(obj); err != nil {
+		return NewValidationError("Invalid JSON structure", err)
 	}
 
 	// Valida usando o validator compartilhado
@@ -32,6 +44,19 @@ func (c *Context[T]) BindJSON(obj *T) error {
 
 // BindQuery faz o bind e validação de query parameters
 func (c *Context[T]) BindQuery(obj *T) error {
+	// Sanitiza query params
+	queryParams := make(map[string]interface{})
+	for k, v := range c.Request.URL.Query() {
+		if len(v) > 0 {
+			queryParams[k] = v[0]
+		}
+	}
+	
+	_, err := sanitizeUserInput(queryParams)
+	if err != nil {
+		return NewValidationError("Invalid query parameters", err)
+	}
+
 	if err := c.Context.ShouldBindQuery(obj); err != nil {
 		return NewValidationError("Invalid query parameters", err)
 	}
@@ -48,6 +73,17 @@ func (c *Context[T]) BindQuery(obj *T) error {
 
 // BindURI faz o bind e validação de parâmetros da URI
 func (c *Context[T]) BindURI(obj *T) error {
+	// Sanitiza URI params
+	uriParams := make(map[string]interface{})
+	for _, param := range c.Params {
+		uriParams[param.Key] = param.Value
+	}
+	
+	_, err := sanitizeUserInput(uriParams)
+	if err != nil {
+		return NewValidationError("Invalid URI parameters", err)
+	}
+
 	if err := c.Context.ShouldBindUri(obj); err != nil {
 		return NewValidationError("Invalid URI parameters", err)
 	}

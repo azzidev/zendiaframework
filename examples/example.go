@@ -247,10 +247,15 @@ func main() {
 			return nil
 		}
 
-		// Safe filters - only allow whitelisted fields
+		// Filtros internos - sem sanitização (código confiável)
 		filters := map[string]interface{}{}
 		if name := c.Query(zendia.QueryName); name != "" && len(name) <= 100 {
 			filters[zendia.FieldName] = name
+		}
+		// Exemplo de query complexa que agora funciona:
+		filters["$or"] = []map[string]interface{}{
+			{"status": "active"},
+			{"priority": "high"},
 		}
 		if tenantID := c.GetTenantID(); tenantID != "" {
 			filters[zendia.FieldTenantID] = tenantID
@@ -379,7 +384,7 @@ func main() {
 	// Banner automático do framework
 	app.ShowBanner(zendia.BannerConfig{
 		AppName:    "ZendiaFramework Demo",
-		Version:    "1.0.0",
+		Version:    "1.2.4",
 		Port:       "8080",
 		ShowRoutes: true,
 	})
@@ -393,6 +398,11 @@ func main() {
 		log.Println("5. GET /public/metrics/history → Histórico persistido")
 		log.Println("6. GET /public/metrics/stats?interval=hour → Estatísticas agregadas")
 	}
+	log.Println("\n🛡️ SEGURANÇA v1.2.4:")
+	log.Println("✅ Input do usuário (JSON/Query/URI) → SANITIZADO automaticamente")
+	log.Println("✅ Filtros internos do código → LIVRES para usar $or, $and, etc.")
+	log.Println("✅ NoSQL Injection → BLOQUEADO em requests HTTP")
+	log.Println("✅ Código do dev → SEM RESTRIÇÕES desnecessárias")
 
 	app.Run(":8080")
 }

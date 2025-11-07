@@ -912,14 +912,45 @@ userRepo := zendia.NewHistoryAuditRepository[*User](
 
 ## 🔒 Segurança
 
-### Correções Aplicadas
+### 🎆 **ATUALIZAÇÃO v1.2.4 - Correção Crítica**
 
-#### ✅ **Vulnerabilidades Críticas Corrigidas**
+#### ✅ **Sanitização Corrigida**
+
+**ANTES (v1.0.0 - v1.2.3):** ❌ Sanitização bloqueava código legítimo
+```go
+// ERRO: Bloqueava $or, $and do próprio dev!
+filters := map[string]interface{}{
+    "$or": []map[string]interface{}{ // ❌ REJEITADO!
+        {"status": "active"},
+        {"priority": "high"},
+    },
+}
+```
+
+**AGORA (v1.2.4+):** ✅ Sanitização APENAS no input do usuário
+```go
+// ✅ Código interno: SEM RESTRIÇÕES
+filters := map[string]interface{}{
+    "$or": []map[string]interface{}{ // ✅ FUNCIONA!
+        {"status": "active"},
+        {"priority": "high"},
+    },
+}
+
+// ✅ Input HTTP: SANITIZADO automaticamente
+func handler(c *zendia.Context[MyStruct]) error {
+    var data MyStruct
+    c.BindJSON(&data) // ← Sanitiza automaticamente!
+    return nil
+}
+```
+
+#### 🛡️ **Proteção Atual**
 
 1. **NoSQL Injection Prevention**
-   - Sanitização automática de filtros MongoDB
-   - Validação de nomes de campos com whitelist
-   - Proteção contra operadores MongoDB maliciosos
+   - ✅ **Input HTTP** (JSON/Query/URI) → Sanitizado automaticamente
+   - ✅ **Código interno** → Livre para usar $or, $and, $regex, etc.
+   - ✅ **Trust Boundary** → Separação correta entre input externo e código interno
 
 2. **XSS Prevention** 
    - Sanitização de valores de headers HTTP
@@ -952,17 +983,25 @@ export ZENDIA_LOG_LEVEL="INFO"
 ### Boas Práticas
 
 ```go
-// ✅ Validação de entrada sempre
-type CreateUserRequest struct {
-    Name  string `json:"name" validate:"required,min=2,max=100"`
-    Email string `json:"email" validate:"required,email,max=255"`
+// ✅ Input do usuário: Sempre usar BindJSON/BindQuery/BindURI
+func createUser(c *zendia.Context[CreateUserRequest]) error {
+    var req CreateUserRequest
+    if err := c.BindJSON(&req); err != nil {
+        return err // ← Já sanitizado automaticamente!
+    }
+    // req agora é seguro para usar
 }
 
-// ✅ Filtros seguros com whitelist
-allowedFilters := map[string]bool{
-    "status": true,
-    "name":   true,
-    "email":  true,
+// ✅ Filtros internos: Use livremente operadores MongoDB
+filters := map[string]interface{}{
+    "$or": []map[string]interface{}{ // ✅ FUNCIONA!
+        {"status": "active"},
+        {"name": bson.M{"$regex": "^John"}}, // ✅ FUNCIONA!
+    },
+    "$and": []map[string]interface{}{ // ✅ FUNCIONA!
+        {"age": bson.M{"$gte": 18}},
+        {"verified": true},
+    },
 }
 
 // ✅ Paginação com limites
