@@ -202,7 +202,7 @@ func (mr *MongoRepository[T, ID]) GetFirst(ctx context.Context, filters map[stri
 		filter[k] = v
 	}
 
-	err = mr.collection.FindOne(ctx, filter).Decode(&entity)
+	err := mr.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return entity, NewNotFoundError("No entity found")
@@ -401,7 +401,7 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 		filter[k] = v
 	}
 
-	err = mar.base.collection.FindOne(ctx, filter).Decode(&entity)
+	err := mar.base.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return entity, NewNotFoundError("No entity found")
