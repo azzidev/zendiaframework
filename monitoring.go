@@ -1,6 +1,7 @@
 package zendia
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync"
@@ -26,8 +27,8 @@ var DefaultMetricsConfig = MetricsConfig{
 	MaxResponseTimes:  1000,
 	CleanupInterval:   5 * time.Minute,
 	MaxMemoryMB:      10, // 10MB max
-	PersistInterval:   1 * time.Minute, // Salva a cada 1 minuto
-	EnablePersistence: false, // Desabilitado por padrão
+	PersistInterval:   2 * time.Minute, // Salva a cada 2 minutos (menos agressivo)
+	EnablePersistence: false, // Desabilitado por padrão para evitar crashes
 }
 
 // EndpointStats estatísticas por endpoint
@@ -88,10 +89,8 @@ func NewMetricsWithConfig(config MetricsConfig) *Metrics {
 	// Inicia limpeza automática
 	go m.startCleanupRoutine()
 	
-	// Inicia persistência automática se habilitada
-	if config.EnablePersistence {
-		go m.startPersistenceRoutine()
-	}
+	// NÃO inicia persistência automaticamente aqui
+	// Será iniciada apenas quando SetPersister for chamado
 	
 	return m
 }
@@ -101,6 +100,21 @@ func (m *Metrics) SetPersister(persister MetricsPersister) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.persister = persister
+}
+
+// DisablePersistence desabilita a persistência de métricas
+func (m *Metrics) DisablePersistence() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config.EnablePersistence = false
+	m.persister = nil
+}
+
+// EnablePersistence habilita a persistência de métricas
+func (m *Metrics) EnablePersistence() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config.EnablePersistence = true
 }
 
 // RecordRequest registra uma requisição com limites de segurança
@@ -227,13 +241,22 @@ func (m *Metrics) startPersistenceRoutine() {
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
-						fmt.Printf("Metrics persistence panic: %v\n", r)
+						fmt.Printf("Metrics persistence panic recovered: %v\n", r)
+						// Não mata a aplicação, apenas loga o erro
 					}
 				}()
-				m.persistMetrics()
+				
+				// Verifica se persister está disponível antes de tentar persistir
+				m.mu.RLock()
+				hasPersister := m.persister != nil
+				m.mu.RUnlock()
+				
+				if hasPersister {
+					m.persistMetrics()
+				}
 			}()
 		}
-	}
+		}
 }
 
 // persistMetrics salva snapshot atual das métricas
@@ -255,17 +278,36 @@ func (m *Metrics) persistMetrics() {
 			}
 		}()
 		
+		// Captura stats com tratamento de erro
 		stats := m.GetStats()
+		
+		// Validação segura dos tipos
+		uptime, _ := stats["uptime"].(string)
+		activeReqs, _ := stats["active_requests"].(int64)
+		totalReqs, _ := stats["total_requests"].(int64)
+		totalErrs, _ := stats["total_errors"].(int64)
+		errorRate, _ := stats["error_rate"].(float64)
+		endpoints, _ := stats["endpoints"].(map[string]interface{})
+		memory, _ := stats["memory"].(map[string]interface{})
+		
+		// Garante que endpoints e memory não sejam nil
+		if endpoints == nil {
+			endpoints = make(map[string]interface{})
+		}
+		if memory == nil {
+			memory = make(map[string]interface{})
+		}
+		
 		snapshot := MetricsSnapshot{
 			ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
 			Timestamp:      time.Now(),
-			Uptime:         stats["uptime"].(string),
-			ActiveRequests: stats["active_requests"].(int64),
-			TotalRequests:  stats["total_requests"].(int64),
-			TotalErrors:    stats["total_errors"].(int64),
-			ErrorRate:      stats["error_rate"].(float64),
-			Endpoints:      stats["endpoints"].(map[string]interface{}),
-			MemoryUsage:    stats["memory"].(map[string]interface{}),
+			Uptime:         uptime,
+			ActiveRequests: activeReqs,
+			TotalRequests:  totalReqs,
+			TotalErrors:    totalErrs,
+			ErrorRate:      errorRate,
+			Endpoints:      endpoints,
+			MemoryUsage:    memory,
 		}
 		
 		done <- persister.Save(snapshot)
@@ -378,23 +420,46 @@ func (z *Zendia) AddMonitoring() *Metrics {
 // AddMonitoringWithPersistence adiciona monitoramento com persistência MongoDB
 func (z *Zendia) AddMonitoringWithPersistence(collection *mongo.Collection) *Metrics {
 	config := DefaultMetricsConfig
-	config.EnablePersistence = true
 	
+	// Tenta habilitar persistência, mas falha graciosamente
 	metrics := NewMetricsWithConfig(config)
-	persister := NewMongoMetricsPersister(collection)
 	
-	// Cria índices otimizados
-	if err := persister.CreateIndexes(); err != nil {
-		// Log error but continue
-		fmt.Printf("Warning: Failed to create metrics indexes: %v\n", err)
+	// Testa conexão antes de habilitar persistência
+	if collection != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		// Testa se consegue acessar a collection
+		if err := collection.Database().Client().Ping(ctx, nil); err != nil {
+			fmt.Printf("Warning: MongoDB not available, disabling metrics persistence: %v\n", err)
+			z.Use(Monitoring(metrics))
+			return metrics
+		}
+		
+		persister := NewMongoMetricsPersister(collection)
+		
+		// Tenta criar índices
+		if err := persister.CreateIndexes(); err != nil {
+			fmt.Printf("Warning: Failed to create metrics indexes: %v\n", err)
+		}
+		
+		// Só habilita persistência se tudo funcionou
+		config.EnablePersistence = true
+		metrics.config = config
+		metrics.SetPersister(persister)
+		
+		// Inicia rotina de persistência apenas se habilitada
+		go metrics.startPersistenceRoutine()
+		
+		// Adiciona endpoints de histórico
+		z.addMetricsHistoryEndpoints(metrics, persister)
+		
+		fmt.Println("✅ Metrics persistence enabled with MongoDB")
+	} else {
+		fmt.Println("⚠️  Metrics persistence disabled - no collection provided")
 	}
 	
-	metrics.SetPersister(persister)
 	z.Use(Monitoring(metrics))
-	
-	// Adiciona endpoints de histórico
-	z.addMetricsHistoryEndpoints(metrics, persister)
-	
 	return metrics
 }
 

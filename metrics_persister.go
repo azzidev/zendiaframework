@@ -2,6 +2,7 @@ package zendia
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -23,11 +24,32 @@ func NewMongoMetricsPersister(collection *mongo.Collection) *MongoMetricsPersist
 
 // Save salva snapshot de métricas no MongoDB
 func (mp *MongoMetricsPersister) Save(snapshot MetricsSnapshot) error {
+	if mp.collection == nil {
+		return fmt.Errorf("collection is nil")
+	}
+	
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	
+	// Validação básica do snapshot
+	if snapshot.ID == "" {
+		snapshot.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	if snapshot.Timestamp.IsZero() {
+		snapshot.Timestamp = time.Now()
+	}
+	if snapshot.Endpoints == nil {
+		snapshot.Endpoints = make(map[string]interface{})
+	}
+	if snapshot.MemoryUsage == nil {
+		snapshot.MemoryUsage = make(map[string]interface{})
+	}
 
 	_, err := mp.collection.InsertOne(ctx, snapshot)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to insert metrics snapshot: %w", err)
+	}
+	return nil
 }
 
 // GetHistory busca histórico de métricas por período
