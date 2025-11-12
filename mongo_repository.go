@@ -297,14 +297,14 @@ func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]i
 	return mr.GetAll(ctx, filters)
 }
 
-func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
 	cursor, err := mr.collection.Aggregate(ctx, pipeline)
 	if err != nil {
 		return nil, NewInternalError("Failed to aggregate: " + err.Error())
 	}
 	defer cursor.Close(ctx)
 
-	var results []map[string]interface{}
+	var results []T
 	if err = cursor.All(ctx, &results); err != nil {
 		return nil, NewInternalError("Failed to decode aggregate results: " + err.Error())
 	}
@@ -578,7 +578,7 @@ func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string
 	return mar.GetAll(ctx, filters)
 }
 
-func (mar *MongoAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+func (mar *MongoAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
 	return mar.base.Aggregate(ctx, pipeline)
 }
 
