@@ -297,6 +297,21 @@ func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]i
 	return mr.GetAll(ctx, filters)
 }
 
+func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+	cursor, err := mr.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, NewInternalError("Failed to aggregate: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var results []map[string]interface{}
+	if err = cursor.All(ctx, &results); err != nil {
+		return nil, NewInternalError("Failed to decode aggregate results: " + err.Error())
+	}
+
+	return results, nil
+}
+
 // MongoAuditableEntity interface para entidades MongoDB com auditoria
 type MongoAuditableEntity interface {
 	GetID() uuid.UUID
@@ -561,6 +576,10 @@ func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters 
 
 func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
 	return mar.GetAll(ctx, filters)
+}
+
+func (mar *MongoAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+	return mar.base.Aggregate(ctx, pipeline)
 }
 
 // GetAllIncludingDeleted busca todos os registros incluindo os deletados

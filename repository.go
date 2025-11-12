@@ -17,6 +17,7 @@ type Repository[T any, ID comparable] interface {
 	GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error)
 	GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error)
 	List(ctx context.Context, filters map[string]interface{}) ([]T, error)
+	Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error)
 }
 
 // AuditInfo estrutura para informações de auditoria
@@ -236,4 +237,8 @@ func (mr *MemoryRepository[T, ID]) List(ctx context.Context, filters map[string]
 		result = append(result, entity)
 	}
 	return result, nil
+}
+
+func (mr *MemoryRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+	return nil, NewInternalError("Aggregate not supported in memory repository")
 }
