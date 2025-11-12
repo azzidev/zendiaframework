@@ -224,3 +224,7 @@ func (har *HistoryAuditRepository[T]) List(ctx context.Context, filters map[stri
 func (har *HistoryAuditRepository[T]) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
 	return har.history.GetHistory(ctx, entityID)
 }
+
+func (har *HistoryAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+	return har.base.Aggregate(ctx, pipeline)
+}
