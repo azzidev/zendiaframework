@@ -246,13 +246,20 @@ func (mr *MongoRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 	return nil
 }
 
-func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{}
 	for k, v := range filters {
 		filter[k] = v
 	}
 
-	cursor, err := mr.collection.Find(ctx, filter)
+	findOpts := options.Find()
+	
+	// Apply sort if provided
+	if len(opts) > 0 && opts[0] != nil && opts[0].Sort != nil {
+		findOpts.SetSort(opts[0].Sort)
+	}
+
+	cursor, err := mr.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, NewInternalError("Failed to get entities: " + err.Error())
 	}
@@ -266,7 +273,11 @@ func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string
 	return entities, nil
 }
 
-func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+type QueryOptions struct {
+	Sort map[string]interface{}
+}
+
+func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
 	// Validate pagination parameters
 	if skip < 0 || take < 0 || take > 1000 {
 		return nil, NewBadRequestError("Invalid pagination parameters")
@@ -277,9 +288,14 @@ func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 		filter[k] = v
 	}
 
-	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	
+	// Apply sort if provided
+	if len(opts) > 0 && opts[0] != nil && opts[0].Sort != nil {
+		findOpts.SetSort(opts[0].Sort)
+	}
 
-	cursor, err := mr.collection.Find(ctx, filter, opts)
+	cursor, err := mr.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, NewInternalError("Failed to get entities: " + err.Error())
 	}
@@ -293,8 +309,8 @@ func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 	return entities, nil
 }
 
-func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return mr.GetAll(ctx, filters)
+func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
+	return mr.GetAll(ctx, filters, opts...)
 }
 
 func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
@@ -518,7 +534,7 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 	return NewBadRequestError("Entity does not support audit operations")
 }
 
-func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{
 		"deleted": nil,
 	}
@@ -540,7 +556,14 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 		filter[k] = v
 	}
 
-	cursor, err := mar.base.collection.Find(ctx, filter)
+	findOpts := options.Find()
+	
+	// Apply sort if provided
+	if len(opts) > 0 && opts[0] != nil && opts[0].Sort != nil {
+		findOpts.SetSort(opts[0].Sort)
+	}
+
+	cursor, err := mar.base.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, NewInternalError("Failed to get entities: " + err.Error())
 	}
@@ -554,7 +577,7 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 	return entities, nil
 }
 
-func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, queryOpts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{
 		"deleted": nil,
 	}
@@ -573,9 +596,14 @@ func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters 
 		filter[k] = v
 	}
 
-	opts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	
+	// Apply sort if provided
+	if len(queryOpts) > 0 && queryOpts[0] != nil && queryOpts[0].Sort != nil {
+		findOpts.SetSort(queryOpts[0].Sort)
+	}
 
-	cursor, err := mar.base.collection.Find(ctx, filter, opts)
+	cursor, err := mar.base.collection.Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, NewInternalError("Failed to get entities: " + err.Error())
 	}
@@ -589,8 +617,8 @@ func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters 
 	return entities, nil
 }
 
-func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return mar.GetAll(ctx, filters)
+func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
+	return mar.GetAll(ctx, filters, opts...)
 }
 
 func (mar *MongoAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {

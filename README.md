@@ -247,6 +247,41 @@ cachedRepo := zendia.NewCachedRepository(repo, memoryCache, zendia.CacheConfig{
 }, "User")
 ```
 
+### 🔄 QueryOptions para Ordenação
+
+```go
+// Buscar usuários ordenados por data de criação (mais recente primeiro)
+queryOpts := &zendia.QueryOptions{
+    Sort: map[string]interface{}{
+        "created.set_at": -1, // Decrescente
+    },
+}
+
+// Aplicar em qualquer método de busca
+users, err := repo.GetAll(ctx, filters, queryOpts)
+users, err := repo.GetAllSkipTake(ctx, filters, 0, 10, queryOpts)
+users, err := repo.List(ctx, filters, queryOpts)
+
+// Múltiplos campos de ordenação
+queryOpts := &zendia.QueryOptions{
+    Sort: map[string]interface{}{
+        "priority": -1,        // Prioridade decrescente primeiro
+        "created.set_at": 1,  // Depois por data crescente
+    },
+}
+
+// Casos de uso comuns
+// Notificações mais recentes primeiro
+notifications, err := notificationRepo.GetAllSkipTake(ctx, filters, 0, 20, &zendia.QueryOptions{
+    Sort: map[string]interface{}{"created.set_at": -1},
+})
+
+// Usuários por nome alfabético
+users, err := userRepo.GetAll(ctx, filters, &zendia.QueryOptions{
+    Sort: map[string]interface{}{"name": 1},
+})
+```
+
 ---
 
 ## 🛠️ Funcionalidades Avançadas
@@ -444,6 +479,51 @@ api.GET("/profile", zendia.Handle(func(c *zendia.Context[any]) error {
     })
     return nil
 })
+```
+
+### 🔄 **QueryOptions Avançado**
+
+```go
+// Ordenação complexa com múltiplos critérios
+queryOpts := &zendia.QueryOptions{
+    Sort: map[string]interface{}{
+        "status": 1,           // Status crescente (active, inactive, etc.)
+        "priority": -1,        // Prioridade decrescente (high, medium, low)
+        "updated.set_at": -1,  // Mais recentemente atualizado
+        "name": 1,             // Nome alfabético como último critério
+    },
+}
+
+// Aplicação em diferentes cenários
+// 1. Dashboard - tarefas por prioridade e data
+tasks, err := taskRepo.GetAllSkipTake(ctx, 
+    map[string]interface{}{"status": "active"}, 
+    0, 50, 
+    &zendia.QueryOptions{
+        Sort: map[string]interface{}{
+            "priority": -1,
+            "due_date": 1,
+        },
+    },
+)
+
+// 2. Relatórios - ordenação por período
+reports, err := reportRepo.GetAll(ctx, filters, &zendia.QueryOptions{
+    Sort: map[string]interface{}{
+        "created.set_at": -1, // Mais recente primeiro
+    },
+})
+
+// 3. Auditoria - histórico cronológico
+auditLogs, err := auditRepo.GetAllSkipTake(ctx, 
+    map[string]interface{}{"entity_id": entityID}, 
+    0, 100, 
+    &zendia.QueryOptions{
+        Sort: map[string]interface{}{
+            "trigger.at": -1, // Mais recente primeiro
+        },
+    },
+)
 ```
 
 ### 🔧 Configuração Avançada de Monitoring

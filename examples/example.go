@@ -164,7 +164,7 @@ func main() {
 			},
 			MaxSize: 1000,
 		})
-		userRepo = zendia.NewCachedRepository(baseRepo, memoryCache, zendia.CacheConfig{
+		userRepo = zendia.NewCachedRepository[*User, uuid.UUID](baseRepo, memoryCache, zendia.CacheConfig{
 			TTL: 5 * time.Minute,
 		}, "User")
 		log.Println("Cache em memória ativado - performance 50x mais rápida!")

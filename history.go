@@ -209,16 +209,16 @@ func (har *HistoryAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) 
 	return har.base.Delete(ctx, id)
 }
 
-func (har *HistoryAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return har.base.GetAll(ctx, filters)
+func (har *HistoryAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
+	return har.base.GetAll(ctx, filters, opts...)
 }
 
-func (har *HistoryAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
-	return har.base.GetAllSkipTake(ctx, filters, skip, take)
+func (har *HistoryAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
+	return har.base.GetAllSkipTake(ctx, filters, skip, take, opts...)
 }
 
-func (har *HistoryAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return har.base.List(ctx, filters)
+func (har *HistoryAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
+	return har.base.List(ctx, filters, opts...)
 }
 
 func (har *HistoryAuditRepository[T]) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {

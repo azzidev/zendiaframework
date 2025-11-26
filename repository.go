@@ -14,9 +14,9 @@ type Repository[T any, ID comparable] interface {
 	GetFirst(ctx context.Context, filters map[string]interface{}) (T, error)
 	Update(ctx context.Context, id ID, entity T) (T, error)
 	Delete(ctx context.Context, id ID) error
-	GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error)
-	GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error)
-	List(ctx context.Context, filters map[string]interface{}) ([]T, error)
+	GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error)
+	GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error)
+	List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error)
 	Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error)
 	AggregateRaw(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error)
 }
@@ -114,7 +114,7 @@ func (ar *AuditRepository[T, ID]) GetFirst(ctx context.Context, filters map[stri
 	return ar.base.GetFirst(ctx, filters)
 }
 
-func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
 	if filters == nil {
@@ -124,10 +124,10 @@ func (ar *AuditRepository[T, ID]) GetAll(ctx context.Context, filters map[string
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
 	filters["active"] = true
-	return ar.base.GetAll(ctx, filters)
+	return ar.base.GetAll(ctx, filters, opts...)
 }
 
-func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
 	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
 	if filters == nil {
@@ -137,10 +137,10 @@ func (ar *AuditRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
 	filters["active"] = true
-	return ar.base.GetAllSkipTake(ctx, filters, skip, take)
+	return ar.base.GetAllSkipTake(ctx, filters, skip, take, opts...)
 }
 
-func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	// Injeta tenant_id e active automaticamente nos filtros
 	tenantInfo := GetTenantInfo(ctx)
 	if filters == nil {
@@ -150,7 +150,7 @@ func (ar *AuditRepository[T, ID]) List(ctx context.Context, filters map[string]i
 		filters["tenant_id"] = tenantInfo.TenantID
 	}
 	filters["active"] = true
-	return ar.base.List(ctx, filters)
+	return ar.base.List(ctx, filters, opts...)
 }
 
 // MemoryRepository implementação em memória para testes
@@ -207,7 +207,7 @@ func (mr *MemoryRepository[T, ID]) GetFirst(ctx context.Context, filters map[str
 	return zero, NewNotFoundError("No entity found")
 }
 
-func (mr *MemoryRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (mr *MemoryRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	var result []T
 	for _, entity := range mr.data {
 		result = append(result, entity)
@@ -215,7 +215,7 @@ func (mr *MemoryRepository[T, ID]) GetAll(ctx context.Context, filters map[strin
 	return result, nil
 }
 
-func (mr *MemoryRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int) ([]T, error) {
+func (mr *MemoryRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
 	var result []T
 	i := 0
 	for _, entity := range mr.data {
@@ -232,7 +232,7 @@ func (mr *MemoryRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters m
 	return result, nil
 }
 
-func (mr *MemoryRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
+func (mr *MemoryRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	var result []T
 	for _, entity := range mr.data {
 		result = append(result, entity)
