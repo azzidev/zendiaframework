@@ -33,7 +33,8 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.Error(NewUnauthorizedError("Token de autenticação obrigatório"))
+			err := NewUnauthorizedError("Token de autenticação obrigatório")
+			c.JSON(err.Code, gin.H{"success": false, "error": err.Message})
 			c.Abort()
 			return
 		}
@@ -43,7 +44,8 @@ func (z *Zendia) firebaseAuthMiddleware() gin.HandlerFunc {
 		token, err := z.firebaseAuthConfig.FirebaseClient.VerifyIDToken(c.Request.Context(), tokenString)
 		if err != nil {
 			log.Printf("Firebase token verification failed: %v", err)
-			c.Error(NewUnauthorizedError("Token inválido ou expirado"))
+			apiErr := NewUnauthorizedError("Token inválido ou expirado")
+			c.JSON(apiErr.Code, gin.H{"success": false, "error": apiErr.Message})
 			c.Abort()
 			return
 		}
