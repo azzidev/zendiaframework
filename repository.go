@@ -2,6 +2,7 @@ package zendia
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -72,9 +73,11 @@ func (ar *AuditRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 }
 
 func (ar *AuditRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
-	// Para repositories não-MongoDB, não podemos injetar tenant automaticamente
-	// pois não sabemos a estrutura dos filtros. Isso deve ser feito na camada de use case.
-	return ar.base.GetByID(ctx, id)
+	// Para repositories não-MongoDB, usamos GetFirst com filtros de segurança
+	filters := map[string]interface{}{
+		"_id": id,
+	}
+	return ar.GetFirst(ctx, filters)
 }
 
 func (ar *AuditRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (T, error) {
@@ -201,6 +204,14 @@ func (mr *MemoryRepository[T, ID]) Delete(ctx context.Context, id ID) error {
 
 func (mr *MemoryRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	for _, entity := range mr.data {
+		// Verifica se a entidade tem campo active e se é true
+		if entityVal := reflect.ValueOf(entity); entityVal.Kind() == reflect.Struct {
+			if activeField := entityVal.FieldByName("Active"); activeField.IsValid() && activeField.Kind() == reflect.Bool {
+				if !activeField.Bool() {
+					continue
+				}
+			}
+		}
 		return entity, nil
 	}
 	var zero T
@@ -210,6 +221,14 @@ func (mr *MemoryRepository[T, ID]) GetFirst(ctx context.Context, filters map[str
 func (mr *MemoryRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	var result []T
 	for _, entity := range mr.data {
+		// Verifica se a entidade tem campo active e se é true
+		if entityVal := reflect.ValueOf(entity); entityVal.Kind() == reflect.Struct {
+			if activeField := entityVal.FieldByName("Active"); activeField.IsValid() && activeField.Kind() == reflect.Bool {
+				if !activeField.Bool() {
+					continue
+				}
+			}
+		}
 		result = append(result, entity)
 	}
 	return result, nil
@@ -219,6 +238,14 @@ func (mr *MemoryRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters m
 	var result []T
 	i := 0
 	for _, entity := range mr.data {
+		// Verifica se a entidade tem campo active e se é true
+		if entityVal := reflect.ValueOf(entity); entityVal.Kind() == reflect.Struct {
+			if activeField := entityVal.FieldByName("Active"); activeField.IsValid() && activeField.Kind() == reflect.Bool {
+				if !activeField.Bool() {
+					continue
+				}
+			}
+		}
 		if i < skip {
 			i++
 			continue
@@ -233,11 +260,7 @@ func (mr *MemoryRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters m
 }
 
 func (mr *MemoryRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
-	var result []T
-	for _, entity := range mr.data {
-		result = append(result, entity)
-	}
-	return result, nil
+	return mr.GetAll(ctx, filters, opts...)
 }
 
 func (mr *MemoryRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {

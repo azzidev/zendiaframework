@@ -181,7 +181,10 @@ func (mr *MongoRepository[T, ID]) Create(ctx context.Context, entity T) (T, erro
 
 func (mr *MongoRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
 	var entity T
-	filter := bson.M{mr.idField: id}
+	filter := bson.M{
+		mr.idField: id,
+		"active":   true,
+	}
 
 	err := mr.collection.FindOne(ctx, filter).Decode(&entity)
 	if err != nil {
@@ -197,7 +200,7 @@ func (mr *MongoRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error)
 func (mr *MongoRepository[T, ID]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
 	var entity T
 
-	filter := bson.M{}
+	filter := bson.M{"active": true}
 	for k, v := range filters {
 		filter[k] = v
 	}
@@ -232,22 +235,24 @@ func (mr *MongoRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (
 }
 
 func (mr *MongoRepository[T, ID]) Delete(ctx context.Context, id ID) error {
-	filter := bson.M{mr.idField: id}
+	// SOFT DELETE - Seta active=false ao invés de remover
+	filter := bson.M{mr.idField: id, "active": true}
+	update := bson.M{"$set": bson.M{"active": false}}
 
-	result, err := mr.collection.DeleteOne(ctx, filter)
+	result, err := mr.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return NewInternalError("Failed to delete entity: " + err.Error())
 	}
 
-	if result.DeletedCount == 0 {
-		return NewNotFoundError("Entity not found")
+	if result.ModifiedCount == 0 {
+		return NewNotFoundError("Entity not found or already deleted")
 	}
 
 	return nil
 }
 
 func (mr *MongoRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
-	filter := bson.M{}
+	filter := bson.M{"active": true}
 	for k, v := range filters {
 		filter[k] = v
 	}
@@ -283,7 +288,7 @@ func (mr *MongoRepository[T, ID]) GetAllSkipTake(ctx context.Context, filters ma
 		return nil, NewBadRequestError("Invalid pagination parameters")
 	}
 
-	filter := bson.M{}
+	filter := bson.M{"active": true}
 	for k, v := range filters {
 		filter[k] = v
 	}
@@ -314,7 +319,11 @@ func (mr *MongoRepository[T, ID]) List(ctx context.Context, filters map[string]i
 }
 
 func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
-	cursor, err := mr.collection.Aggregate(ctx, pipeline)
+	// Injeta filtro active=true no início do pipeline
+	activeFilter := bson.M{"$match": bson.M{"active": true}}
+	fullPipeline := append([]interface{}{activeFilter}, pipeline...)
+	
+	cursor, err := mr.collection.Aggregate(ctx, fullPipeline)
 	if err != nil {
 		return nil, NewInternalError("Failed to aggregate: " + err.Error())
 	}
@@ -329,7 +338,11 @@ func (mr *MongoRepository[T, ID]) Aggregate(ctx context.Context, pipeline []inte
 }
 
 func (mr *MongoRepository[T, ID]) AggregateRaw(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
-	cursor, err := mr.collection.Aggregate(ctx, pipeline)
+	// Injeta filtro active=true no início do pipeline
+	activeFilter := bson.M{"$match": bson.M{"active": true}}
+	fullPipeline := append([]interface{}{activeFilter}, pipeline...)
+	
+	cursor, err := mr.collection.Aggregate(ctx, fullPipeline)
 	if err != nil {
 		return nil, NewInternalError("Failed to aggregate: " + err.Error())
 	}
@@ -341,6 +354,39 @@ func (mr *MongoRepository[T, ID]) AggregateRaw(ctx context.Context, pipeline []i
 	}
 
 	return results, nil
+}
+
+// DeleteMany soft delete múltiplos registros
+func (mr *MongoRepository[T, ID]) DeleteMany(ctx context.Context, filters map[string]interface{}) (int64, error) {
+	filter := bson.M{"active": true}
+	for k, v := range filters {
+		filter[k] = v
+	}
+	
+	update := bson.M{"$set": bson.M{"active": false}}
+	
+	result, err := mr.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, NewInternalError("Failed to delete entities: " + err.Error())
+	}
+	
+	return result.ModifiedCount, nil
+}
+
+// HardDelete remove permanentemente do banco (use com cuidado!)
+func (mr *MongoRepository[T, ID]) HardDelete(ctx context.Context, id ID) error {
+	filter := bson.M{mr.idField: id}
+	
+	result, err := mr.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return NewInternalError("Failed to hard delete entity: " + err.Error())
+	}
+	
+	if result.DeletedCount == 0 {
+		return NewNotFoundError("Entity not found")
+	}
+	
+	return nil
 }
 
 // MongoAuditableEntity interface para entidades MongoDB com auditoria
@@ -402,6 +448,7 @@ func (mar *MongoAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (
 	filter := bson.M{
 		"_id":     id,
 		"deleted": nil,
+		"active":  true,
 	}
 
 	// Injeta tenant_id automaticamente
@@ -622,11 +669,43 @@ func (mar *MongoAuditRepository[T]) List(ctx context.Context, filters map[string
 }
 
 func (mar *MongoAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
-	return mar.base.Aggregate(ctx, pipeline)
+	// Injeta filtros de auditoria no início do pipeline
+	tenantInfo := GetTenantInfo(ctx)
+	matchFilter := bson.M{
+		"deleted": nil,
+		"active":  true,
+	}
+	
+	if tenantInfo.TenantID != "" {
+		if tenantUUID, err := uuid.Parse(tenantInfo.TenantID); err == nil {
+			matchFilter["tenant_id"] = tenantUUID
+		}
+	}
+	
+	auditFilter := bson.M{"$match": matchFilter}
+	fullPipeline := append([]interface{}{auditFilter}, pipeline...)
+	
+	return mar.base.Aggregate(ctx, fullPipeline)
 }
 
 func (mar *MongoAuditRepository[T]) AggregateRaw(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
-	return mar.base.AggregateRaw(ctx, pipeline)
+	// Injeta filtros de auditoria no início do pipeline
+	tenantInfo := GetTenantInfo(ctx)
+	matchFilter := bson.M{
+		"deleted": nil,
+		"active":  true,
+	}
+	
+	if tenantInfo.TenantID != "" {
+		if tenantUUID, err := uuid.Parse(tenantInfo.TenantID); err == nil {
+			matchFilter["tenant_id"] = tenantUUID
+		}
+	}
+	
+	auditFilter := bson.M{"$match": matchFilter}
+	fullPipeline := append([]interface{}{auditFilter}, pipeline...)
+	
+	return mar.base.AggregateRaw(ctx, fullPipeline)
 }
 
 // GetAllIncludingDeleted busca todos os registros incluindo os deletados
@@ -742,6 +821,9 @@ func (mar *MongoAuditRepository[T]) Restore(ctx context.Context, id uuid.UUID) e
 		"$unset": bson.M{
 			"deleted": "",
 		},
+		"$set": bson.M{
+			"active": true, // Restaura como ativo
+		},
 	}
 
 	result, err := mar.base.collection.UpdateOne(ctx, filter, update)
@@ -754,4 +836,51 @@ func (mar *MongoAuditRepository[T]) Restore(ctx context.Context, id uuid.UUID) e
 	}
 
 	return nil
+}
+
+// DeleteMany soft delete múltiplos registros com auditoria
+func (mar *MongoAuditRepository[T]) DeleteMany(ctx context.Context, filters map[string]interface{}) (int64, error) {
+	tenantInfo := GetTenantInfo(ctx)
+	
+	filter := bson.M{
+		"deleted": nil,
+		"active":  true,
+	}
+	
+	// Injeta tenant_id automaticamente
+	if tenantInfo.TenantID != "" {
+		if tenantUUID, err := uuid.Parse(tenantInfo.TenantID); err == nil {
+			filter["tenant_id"] = tenantUUID
+		}
+	}
+	
+	// Adiciona filtros do usuário
+	for k, v := range filters {
+		filter[k] = v
+	}
+	
+	// Prepara informações de auditoria
+	var userID uuid.UUID
+	if tenantInfo.UserID != "" {
+		userID = uuid.MustParse(tenantInfo.UserID)
+	}
+	deleteInfo := AuditInfo{
+		SetAt:  tenantInfo.ActionAt,
+		ByName: tenantInfo.UserName,
+		ByID:   userID,
+	}
+	
+	update := bson.M{
+		"$set": bson.M{
+			"deleted": deleteInfo,
+			"active":  false,
+		},
+	}
+	
+	result, err := mar.base.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, NewInternalError("Failed to delete entities: " + err.Error())
+	}
+	
+	return result.ModifiedCount, nil
 }
