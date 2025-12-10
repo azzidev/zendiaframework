@@ -475,6 +475,7 @@ func (mar *MongoAuditRepository[T]) GetFirst(ctx context.Context, filters map[st
 	var entity T
 	filter := bson.M{
 		"deleted": nil,
+		"active":  true,
 	}
 
 	// Inject tenant_id automatically for security
@@ -584,6 +585,7 @@ func (mar *MongoAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) er
 func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{
 		"deleted": nil,
+		"active":  true,
 	}
 
 	// Inject tenant_id automatically for security
@@ -627,6 +629,7 @@ func (mar *MongoAuditRepository[T]) GetAll(ctx context.Context, filters map[stri
 func (mar *MongoAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, queryOpts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{
 		"deleted": nil,
+		"active":  true,
 	}
 
 	// Injeta tenant_id automaticamente
