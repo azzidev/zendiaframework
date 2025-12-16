@@ -55,7 +55,28 @@ func Handle[T any](handler Handler[T]) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := &Context[T]{Context: c}
 		if err := handler(ctx); err != nil {
-			ctx.Error(err)
+			if c.Writer.Written() {
+				return
+			}
+
+			if apiErr, ok := err.(*APIError); ok {
+				switch apiErr.Type {
+				case BadRequestErrorType, ValidationErrorType:
+					ctx.BadRequestWithError(apiErr.Message, apiErr.Details)
+				case NotFoundErrorType:
+					ctx.NotFoundWithError(apiErr.Message, apiErr.Details)
+				case InternalErrorType:
+					ctx.InternalErrorWithError(apiErr.Message, apiErr.Details)
+				case ConflictErrorType:
+					ctx.ConflictWithError(apiErr.Message, apiErr.Details)
+				case UnauthorizedErrorType:
+					ctx.Unauthorized(apiErr.Message)
+				default:
+					ctx.InternalErrorWithError(apiErr.Message, apiErr.Details)
+				}
+			} else {
+				ctx.InternalErrorWithError("Internal server error", err)
+			}
 		}
 	}
 }
