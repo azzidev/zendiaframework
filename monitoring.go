@@ -163,35 +163,46 @@ func (m *Metrics) DecrementActive() {
 func (m *Metrics) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+	return m.getStatsLocked()
+}
+
+// getStatsLocked retorna stats assumindo que o lock já está adquirido
+func (m *Metrics) getStatsLocked() map[string]interface{} {
 	totalReqs := m.getTotalRequests()
 	totalErrs := m.getTotalErrors()
 	errorRate := 0.0
 	if totalReqs > 0 {
 		errorRate = float64(totalErrs) / float64(totalReqs) * 100
 	}
-	
-	stats := map[string]interface{}{
+
+	endpointCount := len(m.stats)
+	estimatedMB := float64(endpointCount*200) / 1024 / 1024
+
+	return map[string]interface{}{
 		"uptime":          time.Since(m.StartTime).String(),
 		"active_requests": m.ActiveRequests,
 		"total_requests":  totalReqs,
 		"total_errors":    totalErrs,
 		"error_rate":      errorRate,
 		"endpoints":       m.getEndpointStats(),
-		"memory":          m.GetMemoryUsage(),
+		"memory": map[string]interface{}{
+			"endpoints_tracked": endpointCount,
+			"max_endpoints":     m.config.MaxEndpoints,
+			"estimated_mb":      estimatedMB,
+			"max_mb":            m.config.MaxMemoryMB,
+			"last_cleanup":      m.lastCleanup.Format(time.RFC3339),
+		},
 		"persistence": map[string]interface{}{
 			"enabled":      m.config.EnablePersistence,
 			"interval":     m.config.PersistInterval.String(),
 			"last_persist": m.lastPersist.Format(time.RFC3339),
 		},
 		"config": map[string]interface{}{
-			"max_endpoints":     m.config.MaxEndpoints,
+			"max_endpoints":    m.config.MaxEndpoints,
 			"cleanup_interval": m.config.CleanupInterval.String(),
 			"max_memory_mb":    m.config.MaxMemoryMB,
 		},
 	}
-	
-	return stats
 }
 
 func (m *Metrics) getTotalRequests() int64 {
@@ -278,38 +289,22 @@ func (m *Metrics) persistMetrics() {
 			}
 		}()
 		
-		// Captura stats com tratamento de erro
-		stats := m.GetStats()
-		
-		// Validação segura dos tipos
-		uptime, _ := stats["uptime"].(string)
-		activeReqs, _ := stats["active_requests"].(int64)
-		totalReqs, _ := stats["total_requests"].(int64)
-		totalErrs, _ := stats["total_errors"].(int64)
-		errorRate, _ := stats["error_rate"].(float64)
-		endpoints, _ := stats["endpoints"].(map[string]interface{})
-		memory, _ := stats["memory"].(map[string]interface{})
-		
-		// Garante que endpoints e memory não sejam nil
-		if endpoints == nil {
-			endpoints = make(map[string]interface{})
-		}
-		if memory == nil {
-			memory = make(map[string]interface{})
-		}
-		
+		m.mu.RLock()
 		snapshot := MetricsSnapshot{
 			ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
 			Timestamp:      time.Now(),
-			Uptime:         uptime,
-			ActiveRequests: activeReqs,
-			TotalRequests:  totalReqs,
-			TotalErrors:    totalErrs,
-			ErrorRate:      errorRate,
-			Endpoints:      endpoints,
-			MemoryUsage:    memory,
+			Uptime:         time.Since(m.StartTime).String(),
+			ActiveRequests: m.ActiveRequests,
+			TotalRequests:  m.getTotalRequests(),
+			TotalErrors:    m.getTotalErrors(),
+			Endpoints:      m.getEndpointStats(),
+			MemoryUsage:    make(map[string]interface{}),
 		}
-		
+		if snapshot.TotalRequests > 0 {
+			snapshot.ErrorRate = float64(snapshot.TotalErrors) / float64(snapshot.TotalRequests) * 100
+		}
+		m.mu.RUnlock()
+
 		done <- persister.Save(snapshot)
 	}()
 	
