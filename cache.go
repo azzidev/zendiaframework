@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // CacheProvider interface comum para diferentes implementações de cache
@@ -26,10 +28,9 @@ type CacheConfig struct {
 type MemoryCacheConfig struct {
 	CacheConfig
 	MaxSize   int
-	MaxMemory int64 // bytes
+	MaxMemory int64
 }
 
-// cacheItem item do cache em memória
 type cacheItem struct {
 	data      []byte
 	expiresAt time.Time
@@ -52,29 +53,23 @@ func NewMemoryCache(config MemoryCacheConfig) *MemoryCache {
 		config.MaxSize = 10000
 	}
 	if config.MaxMemory == 0 {
-		config.MaxMemory = 5 * 1024 * 1024 // 5MB
+		config.MaxMemory = 5 * 1024 * 1024
 	}
 	if config.KeyPrefix == "" {
 		config.KeyPrefix = "zendia:"
 	}
 
-	cache := &MemoryCache{
-		config: config,
-	}
-
-	// Cleanup goroutine
+	cache := &MemoryCache{config: config}
 	go cache.cleanup()
-
 	return cache
 }
 
 func (mc *MemoryCache) Get(ctx context.Context, key string) ([]byte, bool) {
 	fullKey := mc.config.KeyPrefix + key
-
 	if item, ok := mc.items.Load(fullKey); ok {
-		cacheItem := item.(*cacheItem)
-		if time.Now().Before(cacheItem.expiresAt) {
-			return cacheItem.data, true
+		ci := item.(*cacheItem)
+		if time.Now().Before(ci.expiresAt) {
+			return ci.data, true
 		}
 		mc.items.Delete(fullKey)
 	}
@@ -95,14 +90,12 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value []byte, ttl ti
 	mc.mutex.Lock()
 	defer mc.mutex.Unlock()
 
-	// Check memory limit
 	if mc.size+int64(len(value)) > mc.config.MaxMemory {
 		mc.evictOldest()
 	}
 
 	mc.items.Store(fullKey, item)
 	mc.size += int64(len(value))
-
 	return nil
 }
 
@@ -119,7 +112,6 @@ func (mc *MemoryCache) Delete(ctx context.Context, key string) error {
 func (mc *MemoryCache) Clear(ctx context.Context) error {
 	mc.mutex.Lock()
 	defer mc.mutex.Unlock()
-
 	mc.items = sync.Map{}
 	mc.size = 0
 	return nil
@@ -145,29 +137,28 @@ func (mc *MemoryCache) cleanup() {
 }
 
 func (mc *MemoryCache) evictOldest() {
-	// Simple eviction - remove first expired item found
 	now := time.Now()
 	mc.items.Range(func(key, value interface{}) bool {
 		item := value.(*cacheItem)
 		if now.After(item.expiresAt) {
 			mc.items.Delete(key)
 			mc.size -= int64(len(item.data))
-			return false // Stop after first eviction
+			return false
 		}
 		return true
 	})
 }
 
-// CachedRepository wrapper que adiciona cache a qualquer repository
-type CachedRepository[T any, ID comparable] struct {
-	base     Repository[T, ID]
+// CachedRepository wrapper que adiciona cache ao Repository
+type CachedRepository[T MongoAuditableEntity] struct {
+	base     *Repository[T]
 	cache    CacheProvider
 	config   CacheConfig
 	typeName string
 }
 
 // NewCachedRepository cria um repository com cache
-func NewCachedRepository[T any, ID comparable](base Repository[T, ID], cache CacheProvider, config CacheConfig, typeName string) *CachedRepository[T, ID] {
+func NewCachedRepository[T MongoAuditableEntity](base *Repository[T], cache CacheProvider, config CacheConfig, typeName string) *CachedRepository[T] {
 	if config.TTL == 0 {
 		config.TTL = 10 * time.Minute
 	}
@@ -175,7 +166,7 @@ func NewCachedRepository[T any, ID comparable](base Repository[T, ID], cache Cac
 		config.KeyPrefix = "zendia:"
 	}
 
-	return &CachedRepository[T, ID]{
+	return &CachedRepository[T]{
 		base:     base,
 		cache:    cache,
 		config:   config,
@@ -183,19 +174,32 @@ func NewCachedRepository[T any, ID comparable](base Repository[T, ID], cache Cac
 	}
 }
 
-func (cr *CachedRepository[T, ID]) makeKey(operation string, id ID) string {
+func (cr *CachedRepository[T]) makeKey(operation string, id uuid.UUID) string {
 	return fmt.Sprintf("%s:%s:%v", cr.typeName, operation, id)
 }
 
-func (cr *CachedRepository[T, ID]) makeTenantKey(operation string, tenantID string) string {
+func (cr *CachedRepository[T]) makeTenantKey(operation string, tenantID string) string {
 	return fmt.Sprintf("%s:%s:tenant:%s", cr.typeName, operation, tenantID)
 }
 
-func (cr *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error) {
+func (cr *CachedRepository[T]) Create(ctx context.Context, entity T) (T, error) {
+	result, err := cr.base.Create(ctx, entity)
+	if err != nil {
+		return result, err
+	}
+
+	tenantInfo := GetTenantInfo(ctx)
+	if tenantInfo.TenantID != "" {
+		cr.cache.Delete(ctx, cr.makeTenantKey("list", tenantInfo.TenantID))
+	}
+
+	return result, nil
+}
+
+func (cr *CachedRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (T, error) {
 	var zero T
 	key := cr.makeKey("get", id)
 
-	// Try cache first
 	if data, found := cr.cache.Get(ctx, key); found {
 		var result T
 		if err := json.Unmarshal(data, &result); err == nil {
@@ -203,13 +207,11 @@ func (cr *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error
 		}
 	}
 
-	// Cache miss - get from base repository
 	result, err := cr.base.GetByID(ctx, id)
 	if err != nil {
 		return zero, err
 	}
 
-	// Cache the result
 	if data, err := json.Marshal(result); err == nil {
 		cr.cache.Set(ctx, key, data, cr.config.TTL)
 	}
@@ -217,73 +219,50 @@ func (cr *CachedRepository[T, ID]) GetByID(ctx context.Context, id ID) (T, error
 	return result, nil
 }
 
-func (cr *CachedRepository[T, ID]) Create(ctx context.Context, entity T) (T, error) {
-	result, err := cr.base.Create(ctx, entity)
-	if err != nil {
-		return result, err
-	}
-
-	// Invalidate tenant cache
-	tenantInfo := GetTenantInfo(ctx)
-	if tenantInfo.TenantID != "" {
-		tenantKey := cr.makeTenantKey("list", tenantInfo.TenantID)
-		cr.cache.Delete(ctx, tenantKey)
-	}
-
-	return result, nil
+func (cr *CachedRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
+	return cr.base.GetFirst(ctx, filters)
 }
 
-func (cr *CachedRepository[T, ID]) Update(ctx context.Context, id ID, entity T) (T, error) {
+func (cr *CachedRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
 	result, err := cr.base.Update(ctx, id, entity)
 	if err != nil {
 		return result, err
 	}
 
-	// Invalidate specific item cache
-	key := cr.makeKey("get", id)
-	cr.cache.Delete(ctx, key)
+	cr.cache.Delete(ctx, cr.makeKey("get", id))
 
-	// Invalidate tenant cache
 	tenantInfo := GetTenantInfo(ctx)
 	if tenantInfo.TenantID != "" {
-		tenantKey := cr.makeTenantKey("list", tenantInfo.TenantID)
-		cr.cache.Delete(ctx, tenantKey)
+		cr.cache.Delete(ctx, cr.makeTenantKey("list", tenantInfo.TenantID))
 	}
 
 	return result, nil
 }
 
-func (cr *CachedRepository[T, ID]) Delete(ctx context.Context, id ID) error {
+func (cr *CachedRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 	err := cr.base.Delete(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// Invalidate specific item cache
-	key := cr.makeKey("get", id)
-	cr.cache.Delete(ctx, key)
+	cr.cache.Delete(ctx, cr.makeKey("get", id))
 
-	// Invalidate tenant cache
 	tenantInfo := GetTenantInfo(ctx)
 	if tenantInfo.TenantID != "" {
-		tenantKey := cr.makeTenantKey("list", tenantInfo.TenantID)
-		cr.cache.Delete(ctx, tenantKey)
+		cr.cache.Delete(ctx, cr.makeTenantKey("list", tenantInfo.TenantID))
 	}
 
 	return nil
 }
 
-func (cr *CachedRepository[T, ID]) GetAll(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	// For GetAll, we only cache by tenant to keep it simple
+func (cr *CachedRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	tenantInfo := GetTenantInfo(ctx)
-	if tenantInfo.TenantID == "" {
-		// No tenant context, don't cache
-		return cr.base.GetAll(ctx, filters)
+	if tenantInfo.TenantID == "" || len(filters) > 0 {
+		return cr.base.GetAll(ctx, filters, opts...)
 	}
 
 	key := cr.makeTenantKey("list", tenantInfo.TenantID)
 
-	// Try cache first
 	if data, found := cr.cache.Get(ctx, key); found {
 		var result []T
 		if err := json.Unmarshal(data, &result); err == nil {
@@ -291,13 +270,11 @@ func (cr *CachedRepository[T, ID]) GetAll(ctx context.Context, filters map[strin
 		}
 	}
 
-	// Cache miss - get from base repository
-	result, err := cr.base.GetAll(ctx, filters)
+	result, err := cr.base.GetAll(ctx, filters, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the result
 	if data, err := json.Marshal(result); err == nil {
 		cr.cache.Set(ctx, key, data, cr.config.TTL)
 	}
@@ -305,6 +282,22 @@ func (cr *CachedRepository[T, ID]) GetAll(ctx context.Context, filters map[strin
 	return result, nil
 }
 
-func (cr *CachedRepository[T, ID]) List(ctx context.Context, filters map[string]interface{}) ([]T, error) {
-	return cr.GetAll(ctx, filters)
+func (cr *CachedRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
+	return cr.base.GetAllSkipTake(ctx, filters, skip, take, opts...)
+}
+
+func (cr *CachedRepository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
+	return cr.GetAll(ctx, filters, opts...)
+}
+
+func (cr *CachedRepository[T]) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
+	return cr.base.GetHistory(ctx, entityID)
+}
+
+func (cr *CachedRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
+	return cr.base.Aggregate(ctx, pipeline)
+}
+
+func (cr *CachedRepository[T]) AggregateRaw(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
+	return cr.base.AggregateRaw(ctx, pipeline)
 }

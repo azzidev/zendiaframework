@@ -63,7 +63,7 @@ type MetricsPersister interface {
 type Metrics struct {
 	mu             sync.RWMutex
 	config         MetricsConfig
-	stats          map[string]*EndpointStats `json:"endpoints"`
+	stats          map[string]*EndpointStats
 	ActiveRequests int64                     `json:"active_requests"`
 	StartTime      time.Time                 `json:"start_time"`
 	lastCleanup    time.Time
@@ -226,18 +226,15 @@ func (m *Metrics) startCleanupRoutine() {
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
 	
-	for {
-		select {
-		case <-ticker.C:
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						fmt.Printf("Metrics cleanup panic: %v\n", r)
-					}
-				}()
-				m.cleanup()
+	for range ticker.C {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Metrics cleanup panic: %v\n", r)
+				}
 			}()
-		}
+			m.cleanup()
+		}()
 	}
 }
 
@@ -246,28 +243,23 @@ func (m *Metrics) startPersistenceRoutine() {
 	ticker := time.NewTicker(m.config.PersistInterval)
 	defer ticker.Stop()
 	
-	for {
-		select {
-		case <-ticker.C:
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						fmt.Printf("Metrics persistence panic recovered: %v\n", r)
-						// Não mata a aplicação, apenas loga o erro
-					}
-				}()
-				
-				// Verifica se persister está disponível antes de tentar persistir
-				m.mu.RLock()
-				hasPersister := m.persister != nil
-				m.mu.RUnlock()
-				
-				if hasPersister {
-					m.persistMetrics()
+	for range ticker.C {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Metrics persistence panic recovered: %v\n", r)
 				}
 			}()
-		}
-		}
+			
+			m.mu.RLock()
+			hasPersister := m.persister != nil
+			m.mu.RUnlock()
+			
+			if hasPersister {
+				m.persistMetrics()
+			}
+		}()
+	}
 }
 
 // persistMetrics salva snapshot atual das métricas
@@ -459,7 +451,7 @@ func (z *Zendia) AddMonitoringWithPersistence(collection *mongo.Collection) *Met
 }
 
 // addMetricsHistoryEndpoints adiciona endpoints para consultar histórico
-func (z *Zendia) addMetricsHistoryEndpoints(metrics *Metrics, persister *MongoMetricsPersister) {
+func (z *Zendia) addMetricsHistoryEndpoints(_ *Metrics, persister *MongoMetricsPersister) {
 	// Endpoint para histórico de métricas
 	z.GET("/public/metrics/history", Handle(func(c *Context[any]) error {
 		// Parse query parameters

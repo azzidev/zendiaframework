@@ -29,7 +29,6 @@ func New() *Zendia {
 	
 	// Middlewares padrão
 	z.engine.Use(gin.Recovery())
-	z.engine.Use(TenantMiddleware(nil)) // Usa extrator padrão
 	
 	return z
 }

@@ -29,7 +29,7 @@
 - 🛣️ **Roteamento Inteligente** - Sistema flexível com grupos e middlewares
 - 🔒 **Multi-Tenant** - Contexto automático de tenant/usuário em todas as requisições
 - 📊 **Monitoramento Built-in** - Métricas, tracing e health checks nativos
-- 🗄️ **Repository Pattern** - Suporte a MongoDB e in-memory com auditoria automática
+- 🗄️ **Repository Unificado** - MongoDB com options (`WithAudit`, `WithHistory`)
 - ⚡ **Generics** - Type-safe com suporte completo a generics do Go
 
 ### 🛡️ **Segurança & Qualidade**
@@ -207,7 +207,7 @@ func createUser(c *zendia.Context[User]) error {
 }
 ```
 
-### Repository com Auditoria e Histórico
+### Repository Unificado com Options
 
 ```go
 import "github.com/google/uuid"
@@ -216,10 +216,11 @@ type User struct {
     ID        uuid.UUID `bson:"_id" json:"id"`
     Name      string    `json:"name" validate:"required,min=2"`
     Email     string    `json:"email" validate:"required,email"`
-    TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"` // Preenchido automaticamente
-    Created   zendia.AuditInfo `bson:"created" json:"created"`   // Nova interface de auditoria
-    Updated   zendia.AuditInfo `bson:"updated" json:"updated"`   // Nova interface de auditoria
-    Deleted   zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"` // Consistente com AuditInfo
+    TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"`
+    Active    bool      `bson:"active" json:"active"`
+    Created   zendia.AuditInfo `bson:"created" json:"created"`
+    Updated   zendia.AuditInfo `bson:"updated" json:"updated"`
+    Deleted   zendia.AuditInfo `bson:"deleted" json:"deleted,omitempty"`
 }
 
 // Implementa interface para auditoria automática
@@ -229,11 +230,19 @@ func (u *User) SetCreated(info zendia.AuditInfo) { u.Created = info }
 func (u *User) SetUpdated(info zendia.AuditInfo) { u.Updated = info }
 func (u *User) SetDeleted(info zendia.AuditInfo) { u.Deleted = info }
 func (u *User) SetTenantID(s string)          { u.TenantID = uuid.MustParse(s) }
+func (u *User) SetActive(active bool)         { u.Active = active }
 
-// Repository com auditoria e histórico automático!
-repo := zendia.NewHistoryAuditRepository[*User](collection, historyCollection, "User")
-// ou apenas auditoria
-repo := zendia.NewMongoAuditRepository[*User](collection)
+// Simples - sem auditoria, sem histórico
+repo := zendia.NewRepository[*User](collection)
+
+// Com auditoria (tenant injection, created/updated/deleted automáticos)
+repo := zendia.NewRepository[*User](collection, zendia.WithAudit())
+
+// Com auditoria + histórico de mudanças
+repo := zendia.NewRepository[*User](collection,
+    zendia.WithAudit(),
+    zendia.WithHistory(historyCollection, "User"),
+)
 
 // Com cache automático (in-memory - sem dependências)
 memoryCache := zendia.NewMemoryCache(zendia.MemoryCacheConfig{
@@ -247,14 +256,18 @@ cachedRepo := zendia.NewCachedRepository(repo, memoryCache, zendia.CacheConfig{
 }, "User")
 ```
 
-### 🔄 QueryOptions para Ordenação
+> **Soft Delete**: O framework usa `active: true/false` para soft delete. Todos os métodos de leitura filtram automaticamente por `active: true`. O campo `deleted` é preenchido com informações de auditoria quando `WithAudit()` está habilitado, mas **não é usado como filtro**.
+```
+
+### 🔄 QueryOptions
 
 ```go
-// Buscar usuários ordenados por data de criação (mais recente primeiro)
+// Ordenação, limite, skip e projeção
 queryOpts := &zendia.QueryOptions{
-    Sort: map[string]interface{}{
-        "created.set_at": -1, // Decrescente
-    },
+    Sort:       map[string]interface{}{"created.set_at": -1},
+    Limit:      10,
+    Skip:       20,
+    Projection: map[string]interface{}{"name": 1, "email": 1},
 }
 
 // Aplicar em qualquer método de busca
@@ -345,10 +358,10 @@ globalHealth.AddCheck(zendia.NewDatabaseHealthCheck("main_db", dbPing))
 app.AddHealthEndpoint(globalHealth) // GET /health
 
 // Repository com histórico automático
-projectRepo := zendia.NewHistoryAuditRepository[*Project](
+projectRepo := zendia.NewRepository[*Project](
     db.Collection("projects"),
-    db.Collection("history"),
-    "Project",
+    zendia.WithAudit(),
+    zendia.WithHistory(db.Collection("history"), "Project"),
 )
 
 // Histórico automático em updates
@@ -492,6 +505,13 @@ queryOpts := &zendia.QueryOptions{
         "updated.set_at": -1,  // Mais recentemente atualizado
         "name": 1,             // Nome alfabético como último critério
     },
+}
+
+// Projeção - retornar apenas campos específicos
+opts := &zendia.QueryOptions{
+    Sort:       map[string]interface{}{"created.set_at": -1},
+    Limit:      50,
+    Projection: map[string]interface{}{"name": 1, "email": 1, "status": 1},
 }
 
 // Aplicação em diferentes cenários
@@ -756,7 +776,8 @@ func TestUserCreation(t *testing.T) {
 Veja [`examples/complete_example.go`](examples/complete_example.go) para um exemplo completo com:
 
 - ✅ CRUD completo com auditoria
-- ✅ MongoDB + fallback in-memory
+- ✅ MongoDB + auditoria + histórico
+- ✅ Repository unificado com options
 - ✅ Autenticação e autorização
 - ✅ Health checks granulares
 - ✅ Métricas e monitoring
@@ -851,6 +872,9 @@ type User struct {
     // ✅ OBRIGATÓRIO - Tenant para multi-tenancy
     TenantID  uuid.UUID `bson:"tenant_id" json:"tenant_id"`
     
+    // ✅ OBRIGATÓRIO - Flag de soft delete
+    Active    bool      `bson:"active" json:"active"`
+    
     // ✅ OBRIGATÓRIO - Auditoria com AuditInfo
     Created   zendia.AuditInfo `bson:"created" json:"created"`
     Updated   zendia.AuditInfo `bson:"updated" json:"updated"`
@@ -873,14 +897,13 @@ func (u *User) SetDeleted(info zendia.AuditInfo) { u.Deleted = info }
 func (u *User) SetActive(active bool)            { /* implementar conforme necessário */ }
 ```
 
-#### **Estrutura AuditInfo (Recomendada)**
+#### **Estrutura AuditInfo**
 
 ```go
 type AuditInfo struct {
     SetAt  time.Time `bson:"set_at" json:"set_at"`     // Quando foi alterado
     ByName string    `bson:"by_name" json:"by_name"`   // Nome do usuário
     ByID   uuid.UUID `bson:"by_id" json:"by_id"`       // ID do usuário
-    Active bool      `bson:"active" json:"active"`     // Se está ativo
 }
 ```
 
@@ -904,12 +927,22 @@ type FieldChange struct {
 }
 ```
 
-### 🔍 **Campos de Filtro Permitidos**
+### 🔍 **Input Sanitization Configurável**
 
-O framework **só permite** filtros em campos seguros:
+O `InputSanitizer` protege contra NoSQL injection em input HTTP. **Filtros internos do dev não passam por sanitização.**
 
 ```go
-// Whitelist de campos permitidos para filtros
+// Cria sanitizador com campos customizados além dos padrão
+sanitizer := zendia.NewInputSanitizer("project_id", "sprint_id", "category")
+
+// Sanitiza input do usuário
+safeInput, err := sanitizer.Sanitize(userInput)
+```
+
+Campos padrão permitidos: `_id`, `tenant_id`, `name`, `email`, `status`, `active`.
+
+```go
+// Whitelist é configurável por projeto
 var allowedFilterKeys = map[string]bool{
     "_id":              true,
     "tenant_id":        true,
@@ -936,7 +969,8 @@ var allowedFilterKeys = map[string]bool{
 
 1. **UUID Obrigatório**: Todos os IDs devem ser UUID v4
 2. **TenantID Obrigatório**: Multi-tenancy é forçado
-3. **Auditoria Obrigatória**: Escolha AuditInfo ou legacy
+3. **Auditoria Opcional**: Use `WithAudit()` para habilitar
+4. **Histórico Opcional**: Use `WithHistory()` para habilitar
 4. **Collections Configuráveis**: Você escolhe os nomes (users/history são sugestões)
 5. **Filtros Limitados**: Só campos na whitelist
 6. **Paginação Limitada**: Máximo 1000 itens por página
@@ -977,10 +1011,10 @@ usersCollection := db.Collection("usuarios")     // ← SEU nome da collection
 historyCollection := db.Collection("historico")  // ← SEU nome do histórico
 
 // 3. Repository com histórico automático
-userRepo := zendia.NewHistoryAuditRepository[*User](
+userRepo := zendia.NewRepository[*User](
     usersCollection,
-    historyCollection,
-    "User", // Nome da entidade para histórico
+    zendia.WithAudit(),
+    zendia.WithHistory(historyCollection, "User"),
 )
 
 

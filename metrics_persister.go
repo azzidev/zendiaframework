@@ -70,7 +70,7 @@ func (mp *MongoMetricsPersister) GetHistory(tenantID string, from, to time.Time)
 	}
 
 	// Ordena por timestamp (mais recente primeiro)
-	opts := options.Find().SetSort(bson.D{{"timestamp", -1}})
+	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: -1}})
 
 	cursor, err := mp.collection.Find(ctx, filter, opts)
 	if err != nil {
@@ -97,7 +97,7 @@ func (mp *MongoMetricsPersister) GetLatest(tenantID string, limit int) ([]Metric
 	}
 
 	opts := options.Find().
-		SetSort(bson.D{{"timestamp", -1}}).
+		SetSort(bson.D{{Key: "timestamp", Value: -1}}).
 		SetLimit(int64(limit))
 
 	cursor, err := mp.collection.Find(ctx, filter, opts)
@@ -135,15 +135,15 @@ func (mp *MongoMetricsPersister) CreateIndexes() error {
 
 	indexes := []mongo.IndexModel{
 		{
-			Keys: bson.D{{"timestamp", -1}},
+			Keys: bson.D{{Key: "timestamp", Value: -1}},
 			Options: options.Index().SetName("timestamp_desc"),
 		},
 		{
-			Keys: bson.D{{"tenant_id", 1}, {"timestamp", -1}},
+			Keys: bson.D{{Key: "tenant_id", Value: 1}, {Key: "timestamp", Value: -1}},
 			Options: options.Index().SetName("tenant_timestamp"),
 		},
 		{
-			Keys: bson.D{{"timestamp", 1}},
+			Keys: bson.D{{Key: "timestamp", Value: 1}},
 			Options: options.Index().
 				SetName("timestamp_ttl").
 				SetExpireAfterSeconds(30 * 24 * 60 * 60), // 30 dias TTL

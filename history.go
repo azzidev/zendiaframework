@@ -11,9 +11,9 @@ import (
 
 // TriggerInfo informações sobre o trigger que causou a mudança
 type TriggerInfo struct {
-	Name string    `bson:"name" json:"name"` // Nome da operação (Create, Update, Delete)
-	At   time.Time `bson:"at" json:"at"`     // Quando aconteceu
-	By   string    `bson:"by" json:"by"`     // Quem executou
+	Name string    `bson:"name" json:"name"`
+	At   time.Time `bson:"at" json:"at"`
+	By   string    `bson:"by" json:"by"`
 }
 
 // HistoryEntry representa uma entrada no histórico de mudanças
@@ -39,9 +39,7 @@ type HistoryManager struct {
 
 // NewHistoryManager cria um novo gerenciador de histórico
 func NewHistoryManager(collection *mongo.Collection) *HistoryManager {
-	return &HistoryManager{
-		collection: collection,
-	}
+	return &HistoryManager{collection: collection}
 }
 
 // RecordChanges registra as mudanças entre dois objetos
@@ -75,63 +73,6 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 	return err
 }
 
-// detectChanges compara dois objetos e retorna apenas os campos que mudaram
-func (hm *HistoryManager) detectChanges(before, after interface{}) map[string]FieldChange {
-	changes := make(map[string]FieldChange)
-
-	beforeVal := reflect.ValueOf(before)
-	afterVal := reflect.ValueOf(after)
-
-	// Se são ponteiros, pega o valor
-	if beforeVal.Kind() == reflect.Ptr {
-		beforeVal = beforeVal.Elem()
-	}
-	if afterVal.Kind() == reflect.Ptr {
-		afterVal = afterVal.Elem()
-	}
-
-	beforeType := beforeVal.Type()
-
-	for i := 0; i < beforeVal.NumField(); i++ {
-		field := beforeType.Field(i)
-		fieldName := field.Name
-
-		// Pula campos de auditoria e sistema
-		if hm.shouldSkipField(fieldName) {
-			continue
-		}
-
-		beforeFieldVal := beforeVal.Field(i)
-		afterFieldVal := afterVal.Field(i)
-
-		// Compara os valores
-		if !reflect.DeepEqual(beforeFieldVal.Interface(), afterFieldVal.Interface()) {
-			changes[fieldName] = FieldChange{
-				Before: beforeFieldVal.Interface(),
-				After:  afterFieldVal.Interface(),
-			}
-		}
-	}
-
-	return changes
-}
-
-// shouldSkipField verifica se um campo deve ser ignorado no histórico
-func (hm *HistoryManager) shouldSkipField(fieldName string) bool {
-	skipFields := []string{
-		"Created", "Updated", "DeletedAt", "DeletedBy",
-		"CreatedAt", "UpdatedAt", "CreatedBy", "UpdatedBy",
-		"TenantID", "ID",
-	}
-
-	for _, skip := range skipFields {
-		if fieldName == skip {
-			return true
-		}
-	}
-	return false
-}
-
 // GetHistory busca o histórico de uma entidade
 func (hm *HistoryManager) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
 	tenantInfo := GetTenantInfo(ctx)
@@ -158,77 +99,56 @@ func (hm *HistoryManager) GetHistory(ctx context.Context, entityID uuid.UUID) ([
 	return history, nil
 }
 
-// HistoryAuditRepository repository com histórico automático
-type HistoryAuditRepository[T MongoAuditableEntity] struct {
-	base       *MongoAuditRepository[T]
-	history    *HistoryManager
-	entityType string
-}
+func (hm *HistoryManager) detectChanges(before, after interface{}) map[string]FieldChange {
+	changes := make(map[string]FieldChange)
 
-// NewHistoryAuditRepository cria repository com histórico
-func NewHistoryAuditRepository[T MongoAuditableEntity](collection *mongo.Collection, historyCollection *mongo.Collection, entityType string) *HistoryAuditRepository[T] {
-	base := NewMongoAuditRepository[T](collection)
-	history := NewHistoryManager(historyCollection)
+	beforeVal := reflect.ValueOf(before)
+	afterVal := reflect.ValueOf(after)
 
-	return &HistoryAuditRepository[T]{
-		base:       base,
-		history:    history,
-		entityType: entityType,
+	if beforeVal.Kind() == reflect.Ptr {
+		beforeVal = beforeVal.Elem()
 	}
-}
-
-func (har *HistoryAuditRepository[T]) Create(ctx context.Context, entity T) (T, error) {
-	return har.base.Create(ctx, entity)
-}
-
-func (har *HistoryAuditRepository[T]) GetByID(ctx context.Context, id uuid.UUID) (T, error) {
-	return har.base.GetByID(ctx, id)
-}
-
-func (har *HistoryAuditRepository[T]) GetFirst(ctx context.Context, filters map[string]interface{}) (T, error) {
-	return har.base.GetFirst(ctx, filters)
-}
-
-func (har *HistoryAuditRepository[T]) Update(ctx context.Context, id uuid.UUID, entity T) (T, error) {
-	before, err := har.base.GetByID(ctx, id)
-	if err != nil {
-		return entity, err
+	if afterVal.Kind() == reflect.Ptr {
+		afterVal = afterVal.Elem()
 	}
 
-	updated, err := har.base.Update(ctx, id, entity)
-	if err != nil {
-		return entity, err
+	beforeType := beforeVal.Type()
+
+	for i := 0; i < beforeVal.NumField(); i++ {
+		field := beforeType.Field(i)
+		fieldName := field.Name
+
+		if hm.shouldSkipField(fieldName) {
+			continue
+		}
+
+		beforeFieldVal := beforeVal.Field(i)
+		afterFieldVal := afterVal.Field(i)
+
+		if !reflect.DeepEqual(beforeFieldVal.Interface(), afterFieldVal.Interface()) {
+			changes[fieldName] = FieldChange{
+				Before: beforeFieldVal.Interface(),
+				After:  afterFieldVal.Interface(),
+			}
+		}
 	}
 
-	har.history.RecordChanges(ctx, id, har.entityType, "Update", before, updated)
-
-	return updated, nil
+	return changes
 }
 
-func (har *HistoryAuditRepository[T]) Delete(ctx context.Context, id uuid.UUID) error {
-	return har.base.Delete(ctx, id)
-}
-
-func (har *HistoryAuditRepository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
-	return har.base.GetAll(ctx, filters, opts...)
-}
-
-func (har *HistoryAuditRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
-	return har.base.GetAllSkipTake(ctx, filters, skip, take, opts...)
-}
-
-func (har *HistoryAuditRepository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
-	return har.base.List(ctx, filters, opts...)
-}
-
-func (har *HistoryAuditRepository[T]) GetHistory(ctx context.Context, entityID uuid.UUID) ([]HistoryEntry, error) {
-	return har.history.GetHistory(ctx, entityID)
-}
-
-func (har *HistoryAuditRepository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
-	return har.base.Aggregate(ctx, pipeline)
-}
-
-func (har *HistoryAuditRepository[T]) AggregateRaw(ctx context.Context, pipeline []interface{}) ([]map[string]interface{}, error) {
-	return har.base.AggregateRaw(ctx, pipeline)
+func (hm *HistoryManager) shouldSkipField(fieldName string) bool {
+	skipFields := map[string]bool{
+		"Created":   true,
+		"Updated":   true,
+		"Deleted":   true,
+		"DeletedAt": true,
+		"DeletedBy": true,
+		"CreatedAt": true,
+		"UpdatedAt": true,
+		"CreatedBy": true,
+		"UpdatedBy": true,
+		"TenantID":  true,
+		"ID":        true,
+	}
+	return skipFields[fieldName]
 }

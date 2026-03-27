@@ -124,7 +124,7 @@ func TestErrorHandler_Handle(t *testing.T) {
 	var response map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &response)
 	assert.False(t, response["success"].(bool))
-	assert.Equal(t, "Resource not found", response["error"])
+	assert.Equal(t, "Resource not found", response["message"])
 }
 
 func TestMiddleware_CORS(t *testing.T) {

@@ -4,19 +4,7 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
-
-type TestEntity struct {
-	ID       uuid.UUID `json:"id"`
-	Name     string    `json:"name"`
-	TenantID uuid.UUID `json:"tenant_id"`
-}
-
-func (e *TestEntity) GetID() uuid.UUID         { return e.ID }
-func (e *TestEntity) SetID(id uuid.UUID)      { e.ID = id }
-func (e *TestEntity) SetTenantID(s string)    { e.TenantID = uuid.MustParse(s) }
 
 func TestMemoryCache(t *testing.T) {
 	cache := NewMemoryCache(MemoryCacheConfig{
@@ -30,7 +18,6 @@ func TestMemoryCache(t *testing.T) {
 	key := "test-key"
 	value := []byte("test-value")
 
-	// Test Set and Get
 	err := cache.Set(ctx, key, value, 0)
 	if err != nil {
 		t.Fatalf("Failed to set cache: %v", err)
@@ -53,65 +40,44 @@ func TestMemoryCache(t *testing.T) {
 	}
 }
 
-func TestCachedRepository(t *testing.T) {
-	// Create base repository (in-memory)
-	baseRepo := NewMemoryRepository[*TestEntity, uuid.UUID](func() uuid.UUID {
-		return uuid.New()
-	})
-
-	// Create cache
+func TestMemoryCache_Delete(t *testing.T) {
 	cache := NewMemoryCache(MemoryCacheConfig{
-		CacheConfig: CacheConfig{
-			TTL: 5 * time.Minute,
-		},
-		MaxSize: 100,
+		CacheConfig: CacheConfig{TTL: 5 * time.Minute},
+		MaxSize:     100,
 	})
-
-	// Create cached repository
-	cachedRepo := NewCachedRepository(baseRepo, cache, CacheConfig{
-		TTL: 5 * time.Minute,
-	}, "TestEntity")
 
 	ctx := context.Background()
+	cache.Set(ctx, "key1", []byte("value1"), 0)
 
-	// Create entity
-	entity := &TestEntity{
-		Name: "Test Entity",
+	_, found := cache.Get(ctx, "key1")
+	if !found {
+		t.Fatal("Should find key1")
 	}
 
-	created, err := cachedRepo.Create(ctx, entity)
-	if err != nil {
-		t.Fatalf("Failed to create entity: %v", err)
-	}
+	cache.Delete(ctx, "key1")
 
-	// First get - should hit database
-	result1, err := cachedRepo.GetByID(ctx, created.GetID())
-	if err != nil {
-		t.Fatalf("Failed to get entity: %v", err)
+	_, found = cache.Get(ctx, "key1")
+	if found {
+		t.Fatal("Should not find key1 after delete")
 	}
+}
 
-	if result1.Name != "Test Entity" {
-		t.Fatalf("Expected 'Test Entity', got %s", result1.Name)
-	}
+func TestMemoryCache_Clear(t *testing.T) {
+	cache := NewMemoryCache(MemoryCacheConfig{
+		CacheConfig: CacheConfig{TTL: 5 * time.Minute},
+		MaxSize:     100,
+	})
 
-	// Second get - should hit cache
-	result2, err := cachedRepo.GetByID(ctx, created.GetID())
-	if err != nil {
-		t.Fatalf("Failed to get entity from cache: %v", err)
-	}
+	ctx := context.Background()
+	cache.Set(ctx, "key1", []byte("value1"), 0)
+	cache.Set(ctx, "key2", []byte("value2"), 0)
 
-	if result2.Name != "Test Entity" {
-		t.Fatalf("Expected 'Test Entity', got %s", result2.Name)
-	}
+	cache.Clear(ctx)
 
-	// Update should invalidate cache
-	result1.Name = "Updated Entity"
-	updated, err := cachedRepo.Update(ctx, created.GetID(), result1)
-	if err != nil {
-		t.Fatalf("Failed to update entity: %v", err)
-	}
+	_, found1 := cache.Get(ctx, "key1")
+	_, found2 := cache.Get(ctx, "key2")
 
-	if updated.Name != "Updated Entity" {
-		t.Fatalf("Expected 'Updated Entity', got %s", updated.Name)
+	if found1 || found2 {
+		t.Fatal("Should not find any keys after clear")
 	}
 }
