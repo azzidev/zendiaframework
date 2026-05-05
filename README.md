@@ -576,9 +576,6 @@ history, err := metrics.GetMetricsHistory("tenant-123",
 ### 🔐 Segurança Adicional
 
 ```go
-// Rate limiting
-app.Use(zendia.RateLimiter(100, time.Minute))
-
 // CORS configurável
 app.Use(zendia.CORS())
 ```
@@ -1143,7 +1140,6 @@ claims := map[string]interface{}{
 - [ ] Variáveis de ambiente configuradas
 - [ ] Firebase credentials seguras
 - [ ] Validação em todos os endpoints
-- [ ] Rate limiting configurado
 - [ ] HTTPS enforçado em produção
 - [ ] Logs de auditoria habilitados
 - [ ] Headers de segurança configurados
