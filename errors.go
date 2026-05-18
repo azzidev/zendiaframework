@@ -115,6 +115,15 @@ func NewConflictError(message string) *APIError {
 	}
 }
 
+// NewForbiddenError cria um erro de proibido (403)
+func NewForbiddenError(message string) *APIError {
+	return &APIError{
+		Type:    UnauthorizedErrorType,
+		Message: message,
+		Code:    http.StatusForbidden,
+	}
+}
+
 // ErrorMiddleware middleware para captura e tratamento de erros
 func ErrorMiddleware(handler ErrorHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {

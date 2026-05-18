@@ -220,6 +220,35 @@ func (r *Repository[T]) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// GetByIDs busca múltiplos documentos por lista de IDs
+func (r *Repository[T]) GetByIDs(ctx context.Context, ids []uuid.UUID) ([]T, error) {
+	if len(ids) == 0 {
+		return []T{}, nil
+	}
+
+	filter := bson.M{
+		"_id":    bson.M{"$in": ids},
+		"active": true,
+	}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	cursor, err := r.collection.Find(ctx, filter)
+	if err != nil {
+		return nil, NewInternalError("Failed to get entities by IDs: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
 func (r *Repository[T]) GetAll(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
 	filter := bson.M{"active": true}
 
@@ -541,6 +570,123 @@ func (r *Repository[T]) DeleteMany(ctx context.Context, filters map[string]inter
 	}
 
 	return result.ModifiedCount, nil
+}
+
+// UpdateMany atualiza múltiplos documentos que correspondem aos filtros
+func (r *Repository[T]) UpdateMany(ctx context.Context, filters map[string]interface{}, fields map[string]interface{}) (int64, error) {
+	filter := bson.M{"active": true}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	if r.config.audit {
+		tenantInfo := GetTenantInfo(ctx)
+		fields["updated"] = r.buildAuditInfo(tenantInfo)
+	}
+
+	update := bson.M{"$set": fields}
+
+	result, err := r.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, NewInternalError("Failed to update entities: " + err.Error())
+	}
+
+	return result.ModifiedCount, nil
+}
+
+// BulkCreate insere múltiplos documentos de uma vez
+func (r *Repository[T]) BulkCreate(ctx context.Context, entities []T) ([]T, error) {
+	if len(entities) == 0 {
+		return entities, nil
+	}
+
+	docs := make([]interface{}, len(entities))
+	for i, entity := range entities {
+		if entity.GetID() == uuid.Nil {
+			entity.SetID(uuid.New())
+		}
+		if r.config.audit {
+			tenantInfo := GetTenantInfo(ctx)
+			entity.SetTenantID(tenantInfo.TenantID)
+			if ae, ok := any(entity).(AuditableEntity); ok {
+				info := r.buildAuditInfo(tenantInfo)
+				ae.SetCreated(info)
+				ae.SetUpdated(info)
+				ae.SetActive(true)
+			}
+		}
+		entities[i] = entity
+		docs[i] = entity
+	}
+
+	_, err := r.collection.InsertMany(ctx, docs)
+	if err != nil {
+		return nil, NewInternalError("Failed to bulk create entities: " + err.Error())
+	}
+
+	return entities, nil
+}
+
+// Upsert cria ou atualiza um documento baseado nos filtros
+func (r *Repository[T]) Upsert(ctx context.Context, filters map[string]interface{}, entity T) (T, error) {
+	if entity.GetID() == uuid.Nil {
+		entity.SetID(uuid.New())
+	}
+
+	if r.config.audit {
+		tenantInfo := GetTenantInfo(ctx)
+		entity.SetTenantID(tenantInfo.TenantID)
+		if ae, ok := any(entity).(AuditableEntity); ok {
+			info := r.buildAuditInfo(tenantInfo)
+			ae.SetUpdated(info)
+			ae.SetActive(true)
+		}
+	}
+
+	filter := bson.M{}
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	opts := options.FindOneAndUpdate().
+		SetUpsert(true).
+		SetReturnDocument(options.After)
+
+	var result T
+	err := r.collection.FindOneAndUpdate(ctx, filter, bson.M{"$set": entity}, opts).Decode(&result)
+	if err != nil {
+		return result, NewInternalError("Failed to upsert entity: " + err.Error())
+	}
+
+	return result, nil
+}
+
+// ExistsBy verifica se existe algum documento que corresponde aos filtros
+func (r *Repository[T]) ExistsBy(ctx context.Context, filters map[string]interface{}) (bool, error) {
+	filter := bson.M{"active": true}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	count, err := r.collection.CountDocuments(ctx, filter, options.Count().SetLimit(1))
+	if err != nil {
+		return false, NewInternalError("Failed to check existence: " + err.Error())
+	}
+
+	return count > 0, nil
 }
 
 // --- helpers ---

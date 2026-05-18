@@ -8,7 +8,7 @@ const (
 	ClaimTenantID string = "tenant_id" // ID do tenant no seu banco
 	ClaimUserUUID string = "user_uuid" // ID do usuário no seu banco (não usar "user_id" - é reservado)
 	ClaimUserName string = "user_name" // Nome do usuário
-
+	ClaimRole     string = "role"      // Role do usuário no seu sistema
 )
 
 // Context Keys - Internal context keys (do not modify)
