@@ -284,6 +284,84 @@ func (r *Repository[T]) List(ctx context.Context, filters map[string]interface{}
 	return r.GetAll(ctx, filters, opts...)
 }
 
+// Count retorna o total de documentos que correspondem aos filtros
+func (r *Repository[T]) Count(ctx context.Context, filters map[string]interface{}) (int64, error) {
+	filter := bson.M{"active": true}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, NewInternalError("Failed to count entities: " + err.Error())
+	}
+
+	return count, nil
+}
+
+// CountAll retorna o total incluindo deletados
+func (r *Repository[T]) CountAll(ctx context.Context, filters map[string]interface{}) (int64, error) {
+	filter := bson.M{}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return 0, NewInternalError("Failed to count entities: " + err.Error())
+	}
+
+	return count, nil
+}
+
+// GetAllSkipTakeWithCount retorna os documentos paginados + total em uma única chamada
+func (r *Repository[T]) GetAllSkipTakeWithCount(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, int64, error) {
+	if skip < 0 || take < 0 || take > 1000 {
+		return nil, 0, NewBadRequestError("Invalid pagination parameters")
+	}
+
+	filter := bson.M{"active": true}
+
+	if r.config.audit {
+		r.injectTenantFilter(ctx, filter)
+	}
+
+	for k, v := range filters {
+		filter[k] = v
+	}
+
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, NewInternalError("Failed to count entities: " + err.Error())
+	}
+
+	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	r.applyQueryOptions(findOpts, opts...)
+
+	cursor, err := r.collection.Find(ctx, filter, findOpts)
+	if err != nil {
+		return nil, 0, NewInternalError("Failed to get entities: " + err.Error())
+	}
+	defer cursor.Close(ctx)
+
+	var entities []T
+	if err = cursor.All(ctx, &entities); err != nil {
+		return nil, 0, NewInternalError("Failed to decode entities: " + err.Error())
+	}
+
+	return entities, count, nil
+}
+
 func (r *Repository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
 	matchFilter := bson.M{"active": true}
 
