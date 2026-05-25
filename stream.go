@@ -10,33 +10,59 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// StreamMessage representa uma mensagem do stream com metadata
-type StreamMessage struct {
-	TenantID string
-	UserID   string
-	UserName string
-	Payload  []byte
-}
-
 // StreamHandler função que processa uma mensagem do stream
 type StreamHandler func(ctx context.Context, payload []byte) error
+
+// StreamConfig configuração global do stream client
+type StreamConfig struct {
+	MaxLen   int64         // máximo de mensagens no stream (0 = ilimitado)
+	FlushTTL time.Duration // tempo de retenção das mensagens (0 = forever)
+}
 
 // StreamConsumerConfig configuração do consumer
 type StreamConsumerConfig struct {
 	Stream   string
 	Group    string
 	Consumer string
+	StartID  string // "0" = lê desde o início (persistente), "$" = só novas mensagens
 	Handler  StreamHandler
 }
 
 // StreamClient client de Redis Stream com gerenciamento automático de tenant
 type StreamClient struct {
-	redis *redis.Client
+	redis  *redis.Client
+	config StreamConfig
 }
 
 // NewStreamClient cria um novo client de Redis Stream
-func NewStreamClient(redisClient *redis.Client) *StreamClient {
-	return &StreamClient{redis: redisClient}
+func NewStreamClient(redisClient *redis.Client, opts ...StreamOption) *StreamClient {
+	sc := &StreamClient{
+		redis: redisClient,
+		config: StreamConfig{
+			FlushTTL: 7 * 24 * time.Hour,
+		},
+	}
+	for _, opt := range opts {
+		opt(&sc.config)
+	}
+	return sc
+}
+
+// StreamOption opção de configuração do stream
+type StreamOption func(*StreamConfig)
+
+// WithMaxLen configura o limite máximo de mensagens no stream
+func WithMaxLen(maxLen int64) StreamOption {
+	return func(c *StreamConfig) {
+		c.MaxLen = maxLen
+	}
+}
+
+// WithFlushTTL configura o tempo de retenção das mensagens (flush automático)
+func WithFlushTTL(ttl time.Duration) StreamOption {
+	return func(c *StreamConfig) {
+		c.FlushTTL = ttl
+	}
 }
 
 // Publish publica uma mensagem no stream com tenant_id automático do context
@@ -61,18 +87,34 @@ func (sc *StreamClient) Publish(ctx context.Context, stream string, payload inte
 		values["user_name"] = userName
 	}
 
-	return sc.redis.XAdd(ctx, &redis.XAddArgs{
+	args := &redis.XAddArgs{
 		Stream: stream,
 		Values: values,
-	}).Err()
+	}
+
+	if sc.config.MaxLen > 0 {
+		args.MaxLen = sc.config.MaxLen
+		args.Approx = true
+	}
+
+	return sc.redis.XAdd(ctx, args).Err()
 }
 
 // Subscribe registra um consumer para um stream
 // O handler recebe um context já com tenant_id, user_id e user_name injetados
 func (sc *StreamClient) Subscribe(ctx context.Context, config StreamConsumerConfig) {
-	sc.ensureGroup(ctx, config.Stream, config.Group)
+	startID := config.StartID
+	if startID == "" {
+		startID = "0"
+	}
 
-	log.Printf("🎧 Listening to stream: %s (group: %s, consumer: %s)", config.Stream, config.Group, config.Consumer)
+	sc.ensureGroup(ctx, config.Stream, config.Group, startID)
+
+	if sc.config.FlushTTL > 0 {
+		go sc.startFlush(ctx, config.Stream)
+	}
+
+	log.Printf("🎧 Listening to stream: %s (group: %s, consumer: %s, startID: %s)", config.Stream, config.Group, config.Consumer, startID)
 
 	go func() {
 		for {
@@ -134,9 +176,28 @@ func (sc *StreamClient) processMessage(ctx context.Context, config StreamConsume
 	sc.redis.XAck(ctx, config.Stream, config.Group, msg.ID)
 }
 
-func (sc *StreamClient) ensureGroup(ctx context.Context, stream, group string) {
-	err := sc.redis.XGroupCreateMkStream(ctx, stream, group, "0").Err()
+func (sc *StreamClient) ensureGroup(ctx context.Context, stream, group, startID string) {
+	err := sc.redis.XGroupCreateMkStream(ctx, stream, group, startID).Err()
 	if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
 		log.Printf("⚠️  Could not create consumer group [%s/%s]: %v", stream, group, err)
+	}
+}
+
+func (sc *StreamClient) startFlush(ctx context.Context, stream string) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-sc.config.FlushTTL)
+			minID := fmt.Sprintf("%d-0", cutoff.UnixMilli())
+			err := sc.redis.XTrimMinID(ctx, stream, minID).Err()
+			if err != nil {
+				log.Printf("⚠️  Flush error [%s]: %v", stream, err)
+			}
+		}
 	}
 }
