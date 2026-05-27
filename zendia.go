@@ -29,6 +29,12 @@ func New() *Zendia {
 	
 	// Middlewares padrão
 	z.engine.Use(gin.Recovery())
+
+	// Injeta instância do Zendia no context pra o Handle acessar
+	z.engine.Use(func(c *gin.Context) {
+		c.Set("zendia_instance", z)
+		c.Next()
+	})
 	
 	return z
 }

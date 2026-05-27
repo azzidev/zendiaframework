@@ -53,7 +53,13 @@ type Handler[T any] func(*Context[T]) error
 // Handle converte um Handler genérico para gin.HandlerFunc
 func Handle[T any](handler Handler[T]) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		ctx := &Context[T]{Context: c}
+		// Recupera a instância do Zendia do context do gin
+		var z *Zendia
+		if val, exists := c.Get("zendia_instance"); exists {
+			z, _ = val.(*Zendia)
+		}
+
+		ctx := &Context[T]{Context: c, zendia: z}
 		if err := handler(ctx); err != nil {
 			if c.Writer.Written() {
 				return
