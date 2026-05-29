@@ -29,8 +29,11 @@
 - 🛣️ **Roteamento Inteligente** - Sistema flexível com grupos e middlewares
 - 🔒 **Multi-Tenant** - Contexto automático de tenant/usuário em todas as requisições
 - 📊 **Monitoramento Built-in** - Métricas, tracing e health checks nativos
-- 🗄️ **Repository Unificado** - MongoDB com options (`WithAudit`, `WithHistory`)
+- 🗄️ **Repository Unificado** - MongoDB com options (`WithAudit`, `WithHistory`, `WithTTL`)
 - ⚡ **Generics** - Type-safe com suporte completo a generics do Go
+- 📡 **Redis Streams** - Pub/Sub com inject automático de tenant no context
+- 🕐 **TTL Index** - Auto-exclusão de documentos com `WithTTL`
+- 📇 **Indexes Automáticos** - `active` + `tenant_id` criados automaticamente com `WithAudit`
 
 ### 🛡️ **Segurança & Qualidade**
 
@@ -254,6 +257,60 @@ memoryCache := zendia.NewMemoryCache(zendia.MemoryCacheConfig{
 cachedRepo := zendia.NewCachedRepository(repo, memoryCache, zendia.CacheConfig{
     TTL: 10 * time.Minute,
 }, "User")
+
+// Com TTL (auto-exclusão de documentos)
+otpRepo := zendia.NewRepository[*OTP](db.Collection("otps"),
+    zendia.WithTTL("expires_at"),
+)
+// Mongo deleta automaticamente quando expires_at passa
+```
+
+### 📡 Redis Streams (Event-Driven)
+
+```go
+import zendia "github.com/azzidev/zendiaframework"
+
+// Cria o client
+stream := zendia.NewStreamClient(redisClient)
+
+// Publicar evento (tenant_id injetado automaticamente do context)
+stream.Publish(ctx, "user:create", CreateUserRequest{
+    Name:  "John",
+    Email: "john@email.com",
+})
+
+// Consumir evento (tenant_id injetado automaticamente no context do handler)
+stream.Subscribe(ctx, zendia.StreamConsumerConfig{
+    Stream:   "user:create",
+    Group:    "user-service",
+    Consumer: "consumer-1",
+    StartID:  "0",  // "0" = desde o início, "$" = só novas
+    Handler: func(ctx context.Context, payload []byte) error {
+        // ctx já tem tenant_id, user_id, user_name!
+        tenantID := zendia.GetTenantID(ctx)
+        // ...
+        return nil
+    },
+})
+
+// Options
+stream := zendia.NewStreamClient(redisClient,
+    zendia.WithMaxLen(10000),              // Limita stream a ~10k mensagens
+    zendia.WithFlushTTL(7 * 24 * time.Hour), // Flush mensagens > 7 dias (default)
+)
+```
+
+### 📄 Response com Total Opcional
+
+```go
+// Response simples
+c.Success("Tenant encontrado", tenant)
+// {"success": true, "message": "...", "data": {...}}
+
+// Response com total (paginação)
+users, total, _ := repo.GetAllSkipTake(ctx, filters, skip, take)
+c.Success("Usuários encontrados", users, total)
+// {"success": true, "message": "...", "data": [...], "total": 42}
 ```
 
 > **Soft Delete**: O framework usa `active: true/false` para soft delete. Todos os métodos de leitura filtram automaticamente por `active: true`. O campo `deleted` é preenchido com informações de auditoria quando `WithAudit()` está habilitado, mas **não é usado como filtro**.

@@ -63,12 +63,17 @@ func (c *Context[T]) BindURI(obj *T) error {
 }
 
 // Success retorna uma resposta de sucesso padronizada
-func (c *Context[T]) Success(message string, data interface{}) {
-	c.JSON(http.StatusOK, gin.H{
+// Se total for informado, inclui no response (para listagens paginadas)
+func (c *Context[T]) Success(message string, data interface{}, total ...int64) {
+	response := gin.H{
 		ResponseMessage: message,
 		ResponseSuccess: true,
 		ResponseData:    data,
-	})
+	}
+	if len(total) > 0 {
+		response["total"] = total[0]
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // Created retorna uma resposta de criação bem-sucedida

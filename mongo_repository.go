@@ -20,6 +20,7 @@ type RepositoryConfig struct {
 	history    bool
 	historyCol *mongo.Collection
 	entityType string
+	ttlField   string
 }
 
 // RepositoryOption função para configurar o repository
@@ -38,6 +39,13 @@ func WithHistory(historyCollection *mongo.Collection, entityType string) Reposit
 		c.history = true
 		c.historyCol = historyCollection
 		c.entityType = entityType
+	}
+}
+
+// WithTTL habilita auto-exclusão de documentos baseado num campo de data
+func WithTTL(field string) RepositoryOption {
+	return func(c *RepositoryConfig) {
+		c.ttlField = field
 	}
 }
 
@@ -66,11 +74,16 @@ func NewRepository[T MongoAuditableEntity](collection *mongo.Collection, opts ..
 		hm = NewHistoryManager(cfg.historyCol)
 	}
 
-	return &Repository[T]{
+	repo := &Repository[T]{
 		collection: collection,
 		config:     cfg,
 		history:    hm,
 	}
+
+	// Cria indexes automaticamente
+	repo.ensureIndexes()
+
+	return repo
 }
 
 func (r *Repository[T]) Create(ctx context.Context, entity T) (T, error) {
@@ -277,9 +290,9 @@ func (r *Repository[T]) GetAll(ctx context.Context, filters map[string]interface
 	return entities, nil
 }
 
-func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, error) {
+func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, int64, error) {
 	if skip < 0 || take < 0 || take > 1000 {
-		return nil, NewBadRequestError("Invalid pagination parameters")
+		return nil, 0, NewBadRequestError("Invalid pagination parameters")
 	}
 
 	filter := bson.M{"active": true}
@@ -292,21 +305,26 @@ func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]i
 		filter[k] = v
 	}
 
+	count, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, NewInternalError("Failed to count entities: " + err.Error())
+	}
+
 	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
 	r.applyQueryOptions(findOpts, opts...)
 
 	cursor, err := r.collection.Find(ctx, filter, findOpts)
 	if err != nil {
-		return nil, NewInternalError("Failed to get entities: " + err.Error())
+		return nil, 0, NewInternalError("Failed to get entities: " + err.Error())
 	}
 	defer cursor.Close(ctx)
 
 	var entities []T
 	if err = cursor.All(ctx, &entities); err != nil {
-		return nil, NewInternalError("Failed to decode entities: " + err.Error())
+		return nil, 0, NewInternalError("Failed to decode entities: " + err.Error())
 	}
 
-	return entities, nil
+	return entities, count, nil
 }
 
 func (r *Repository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {
@@ -353,43 +371,7 @@ func (r *Repository[T]) CountAll(ctx context.Context, filters map[string]interfa
 	return count, nil
 }
 
-// GetAllSkipTakeWithCount retorna os documentos paginados + total em uma única chamada
-func (r *Repository[T]) GetAllSkipTakeWithCount(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, int64, error) {
-	if skip < 0 || take < 0 || take > 1000 {
-		return nil, 0, NewBadRequestError("Invalid pagination parameters")
-	}
 
-	filter := bson.M{"active": true}
-
-	if r.config.audit {
-		r.injectTenantFilter(ctx, filter)
-	}
-
-	for k, v := range filters {
-		filter[k] = v
-	}
-
-	count, err := r.collection.CountDocuments(ctx, filter)
-	if err != nil {
-		return nil, 0, NewInternalError("Failed to count entities: " + err.Error())
-	}
-
-	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
-	r.applyQueryOptions(findOpts, opts...)
-
-	cursor, err := r.collection.Find(ctx, filter, findOpts)
-	if err != nil {
-		return nil, 0, NewInternalError("Failed to get entities: " + err.Error())
-	}
-	defer cursor.Close(ctx)
-
-	var entities []T
-	if err = cursor.All(ctx, &entities); err != nil {
-		return nil, 0, NewInternalError("Failed to decode entities: " + err.Error())
-	}
-
-	return entities, count, nil
-}
 
 func (r *Repository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
 	matchFilter := bson.M{"active": true}
@@ -729,6 +711,37 @@ func (r *Repository[T]) applyQueryOptions(findOpts *options.FindOptions, opts ..
 	}
 	if qo.Projection != nil {
 		findOpts.SetProjection(qo.Projection)
+	}
+}
+
+func (r *Repository[T]) ensureIndexes() {
+	ctx := context.Background()
+	var indexes []mongo.IndexModel
+
+	// Index composto active + tenant_id quando audit está habilitado
+	if r.config.audit {
+		indexes = append(indexes, mongo.IndexModel{
+			Keys: bson.D{
+				{Key: "active", Value: 1},
+				{Key: "tenant_id", Value: 1},
+			},
+		})
+	}
+
+	// TTL index
+	if r.config.ttlField != "" {
+		expireAfter := int32(0)
+		indexes = append(indexes, mongo.IndexModel{
+			Keys:    bson.D{{Key: r.config.ttlField, Value: 1}},
+			Options: options.Index().SetExpireAfterSeconds(expireAfter),
+		})
+	}
+
+	if len(indexes) > 0 {
+		_, err := r.collection.Indexes().CreateMany(ctx, indexes)
+		if err != nil {
+			log.Printf("⚠️  Failed to create indexes for %s: %v", r.collection.Name(), err)
+		}
 	}
 }
 
