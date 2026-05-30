@@ -31,7 +31,7 @@ type MongoAuditableEntity interface {
 
 // QueryOptions opções para queries
 type QueryOptions struct {
-	Sort       map[string]interface{}
+	Order      Order
 	Limit      int64
 	Skip       int64
 	Projection map[string]interface{}

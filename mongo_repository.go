@@ -692,32 +692,23 @@ func (r *Repository[T]) injectTenantFilter(ctx context.Context, filter bson.M) {
 }
 
 func (r *Repository[T]) applyQueryOptions(findOpts *options.FindOptions, opts ...*QueryOptions) {
-	if len(opts) == 0 || opts[0] == nil {
-		// Se não tem QueryOptions, aplica ordenação padrão
-		defaultOrder := ResolveOrder(Order{})
-		findOpts.SetSort(bson.M{defaultOrder.By: defaultOrder.At})
-		return
+	var order Order
+	if len(opts) > 0 && opts[0] != nil {
+		qo := opts[0]
+		order = ResolveOrder(qo.Order)
+		if qo.Limit > 0 {
+			findOpts.SetLimit(qo.Limit)
+		}
+		if qo.Skip > 0 {
+			findOpts.SetSkip(qo.Skip)
+		}
+		if qo.Projection != nil {
+			findOpts.SetProjection(qo.Projection)
+		}
+	} else {
+		order = ResolveOrder(Order{})
 	}
-	qo := opts[0]
-
-	// Resolve ordenação se Sort estiver vazio
-	if len(qo.Sort) == 0 {
-		defaultOrder := ResolveOrder(Order{})
-		qo.Sort = map[string]interface{}{defaultOrder.By: defaultOrder.At}
-	}
-
-	if qo.Sort != nil {
-		findOpts.SetSort(qo.Sort)
-	}
-	if qo.Limit > 0 {
-		findOpts.SetLimit(qo.Limit)
-	}
-	if qo.Skip > 0 {
-		findOpts.SetSkip(qo.Skip)
-	}
-	if qo.Projection != nil {
-		findOpts.SetProjection(qo.Projection)
-	}
+	findOpts.SetSort(bson.D{{Key: order.By, Value: int(order.At)}})
 }
 
 func (r *Repository[T]) ensureIndexes() {
