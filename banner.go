@@ -41,10 +41,11 @@ func (z *Zendia) ShowBanner(config BannerConfig) {
 	fmt.Println()
 
 	if config.ShowRoutes {
-		fmt.Println("\033[1;36m📋 Links Rápidos:\033[0m")
-		fmt.Printf("   📖 Docs:     http://localhost:%s/docs\n", config.Port)
-		fmt.Printf("   🏥 Saúde:    http://localhost:%s/health\n", config.Port)
-		fmt.Printf("   📊 Métricas: http://localhost:%s/public/metrics\n", config.Port)
+		routes := z.engine.Routes()
+		fmt.Printf("\033[1;36m📋 Rotas registradas (%d):\033[0m\n", len(routes))
+		for _, r := range routes {
+			fmt.Printf("   \033[1;33m%-7s\033[0m %s\n", r.Method, r.Path)
+		}
 		fmt.Println()
 	}
 
