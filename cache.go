@@ -282,8 +282,8 @@ func (cr *CachedRepository[T]) GetAll(ctx context.Context, filters map[string]in
 	return result, nil
 }
 
-func (cr *CachedRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, int64, error) {
-	return cr.base.GetAllSkipTake(ctx, filters, skip, take, opts...)
+func (cr *CachedRepository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, pagination Pagination, opts ...*QueryOptions) ([]T, int64, error) {
+	return cr.base.GetAllSkipTake(ctx, filters, pagination, opts...)
 }
 
 func (cr *CachedRepository[T]) List(ctx context.Context, filters map[string]interface{}, opts ...*QueryOptions) ([]T, error) {

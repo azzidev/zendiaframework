@@ -290,10 +290,8 @@ func (r *Repository[T]) GetAll(ctx context.Context, filters map[string]interface
 	return entities, nil
 }
 
-func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, skip, take int, opts ...*QueryOptions) ([]T, int64, error) {
-	if skip < 0 || take < 0 || take > 1000 {
-		return nil, 0, NewBadRequestError("Invalid pagination parameters")
-	}
+func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]interface{}, pagination Pagination, opts ...*QueryOptions) ([]T, int64, error) {
+	pagination = ResolvePagination(pagination)
 
 	filter := bson.M{"active": true}
 
@@ -310,7 +308,7 @@ func (r *Repository[T]) GetAllSkipTake(ctx context.Context, filters map[string]i
 		return nil, 0, NewInternalError("Failed to count entities: " + err.Error())
 	}
 
-	findOpts := options.Find().SetSkip(int64(skip)).SetLimit(int64(take))
+	findOpts := options.Find().SetSkip(int64(pagination.Skip)).SetLimit(int64(pagination.Take))
 	r.applyQueryOptions(findOpts, opts...)
 
 	cursor, err := r.collection.Find(ctx, filter, findOpts)
@@ -370,8 +368,6 @@ func (r *Repository[T]) CountAll(ctx context.Context, filters map[string]interfa
 
 	return count, nil
 }
-
-
 
 func (r *Repository[T]) Aggregate(ctx context.Context, pipeline []interface{}) ([]T, error) {
 	matchFilter := bson.M{"active": true}
