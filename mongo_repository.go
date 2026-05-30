@@ -693,9 +693,19 @@ func (r *Repository[T]) injectTenantFilter(ctx context.Context, filter bson.M) {
 
 func (r *Repository[T]) applyQueryOptions(findOpts *options.FindOptions, opts ...*QueryOptions) {
 	if len(opts) == 0 || opts[0] == nil {
+		// Se não tem QueryOptions, aplica ordenação padrão
+		defaultOrder := ResolveOrder(Order{})
+		findOpts.SetSort(bson.M{defaultOrder.By: defaultOrder.At})
 		return
 	}
 	qo := opts[0]
+
+	// Resolve ordenação se Sort estiver vazio
+	if len(qo.Sort) == 0 {
+		defaultOrder := ResolveOrder(Order{})
+		qo.Sort = map[string]interface{}{defaultOrder.By: defaultOrder.At}
+	}
+
 	if qo.Sort != nil {
 		findOpts.SetSort(qo.Sort)
 	}

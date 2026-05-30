@@ -62,5 +62,27 @@ func ResolvePagination(pagination Pagination) Pagination {
 		pagination.Skip = 0
 	}
 
+	// Limite máximo de segurança
+	if pagination.Take > 1000 {
+		pagination.Take = 1000
+	}
+
 	return pagination
+}
+
+func ResolveOrder(order Order) Order {
+	if order.By == "" {
+		order.By = "created.set_at"
+	}
+
+	if order.At == 0 {
+		order.At = -1
+	}
+
+	// Garante que só aceita 1 (ASC) ou -1 (DESC)
+	if order.At != 1 && order.At != -1 {
+		order.At = -1
+	}
+
+	return order
 }
