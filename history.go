@@ -14,6 +14,7 @@ type TriggerInfo struct {
 	Name string    `bson:"name" json:"name"`
 	At   time.Time `bson:"at" json:"at"`
 	By   string    `bson:"by" json:"by"`
+	ID   uuid.UUID `bson:"id" json:"id"`
 }
 
 // HistoryEntry representa uma entrada no histórico de mudanças
@@ -63,6 +64,7 @@ func (hm *HistoryManager) RecordChanges(ctx context.Context, entityID uuid.UUID,
 		TenantID:   tenantUUID,
 		Trigger: TriggerInfo{
 			Name: triggerName,
+			ID:   uuid.MustParse(tenantInfo.UserID),
 			At:   tenantInfo.ActionAt,
 			By:   tenantInfo.UserName,
 		},
