@@ -43,8 +43,8 @@ type Order struct {
 }
 
 type Pagination struct {
-	Skip int64
-	Take int64
+	Skip int
+	Take int
 }
 
 type Between struct {
