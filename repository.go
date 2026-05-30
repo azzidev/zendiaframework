@@ -52,3 +52,15 @@ type Between struct {
 	Start time.Time
 	End   time.Time
 }
+
+func ResolvePagination(pagination Pagination) Pagination {
+	if pagination.Take <= 0 {
+		pagination.Take = 10
+	}
+
+	if pagination.Skip <= 0 {
+		pagination.Skip = 0
+	}
+
+	return pagination
+}
