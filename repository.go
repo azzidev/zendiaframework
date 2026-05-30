@@ -36,3 +36,19 @@ type QueryOptions struct {
 	Skip       int64
 	Projection map[string]interface{}
 }
+
+type Order struct {
+	By string
+	At int64
+}
+
+type Pagination struct {
+	Skip int64
+	Take int64
+}
+
+type Between struct {
+	Type  string
+	Start time.Time
+	End   time.Time
+}
