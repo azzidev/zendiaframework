@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/bsoncodec"
 	"go.mongodb.org/mongo-driver/bson/bsonrw"
 	"go.mongodb.org/mongo-driver/bson/bsontype"
@@ -103,10 +104,9 @@ func MongoConnect(ctx context.Context, cfg MongoConnectConfig) (*mongo.Database,
 	}
 
 	codec := &uuidCodec{}
-	reg := bsoncodec.NewRegistryBuilder().
-		RegisterTypeEncoder(uuidType, codec).
-		RegisterTypeDecoder(uuidType, codec).
-		Build()
+	reg := bson.NewRegistry()
+	reg.RegisterTypeEncoder(uuidType, codec)
+	reg.RegisterTypeDecoder(uuidType, codec)
 
 	clientOpts := options.Client().
 		ApplyURI(cfg.URI).
